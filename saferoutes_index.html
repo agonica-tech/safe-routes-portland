@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>SafeRoutes Portland</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+    #map { width: 100%; height: 100vh; }
+    #panel {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+      width: 300px;
+    }
+    #panel h2 { margin: 0 0 10px 0; color: #1F4E79; font-size: 16px; }
+    #panel p.subtitle { margin: 0 0 10px 0; font-size: 11px; color: #888; }
+    #panel input {
+      width: 100%;
+      padding: 6px;
+      margin: 4px 0;
+      box-sizing: border-box;
+      font-size: 13px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    #panel button {
+      width: 100%;
+      padding: 8px;
+      margin-top: 8px;
+      background: #0000cc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    #panel button:hover { background: #5555F2; }
+    #status { margin-top: 8px; font-size: 12px; color: #666; }
+    #score-summary {
+      margin-top: 8px;
+      font-size: 12px;
+      background: #f0f7f0;
+      border-left: 3px solid #1F6B2E;
+      padding: 6px 8px;
+      display: none;
+    }
+    #directions {
+      margin-top: 10px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-size: 12px;
+      border-top: 1px solid #eee;
+      padding-top: 8px;
+      display: none;
+    }
+    #directions ol { margin: 0; padding-left: 20px; }
+    #directions li { margin: 4px 0; }
+    #legend {
+      position: absolute;
+      bottom: 30px;
+      right: 10px;
+      z-index: 1000;
+      background: white;
+      padding: 12px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+      font-size: 12px;
+    }
+    #legend h4 { margin: 0 0 8px 0; color: #1F4E79; }
+    .legend-item { display: flex; align-items: center; margin: 4px 0; }
+    .legend-color { width: 30px; height: 4px; margin-right: 8px; border-radius: 2px; }
+  </style>
+</head>
+
+<body>
+  <div id="panel">
+    <h2>SafeRoutes Portland</h2>
+    <p class="subtitle">Include "Portland OR" in your addresses</p>
+    <input id="start" type="text" placeholder="e.g. 1234 N Main St., Portland OR"/>
+    <input id="end"   type="text" placeholder="e.g. Wunderland, Portland OR"/>
+    <button onclick="getRoute()">Find Safest Route</button>
+    <div id="status">Enter addresses above to begin.</div>
+    <div id="score-summary"></div>
+    <div id="directions"></div>
+  </div>
+
+  <div id="legend">
+    <h4>Map Legend</h4>
+    <div class="legend-item">
+      <div class="legend-color" style="background:#CC0000"></div> Very High Risk (500+)
+    </div>
+    <div class="legend-item">
+      <div class="legend-color" style="background:#FF4500"></div> High Risk (300-500)
+    </div>
+    <div class="legend-item">
+      <div class="legend-color" style="background:#FF8C00"></div> Moderate Risk (200-300)
+    </div>
+    <div class="legend-item">
+      <div class="legend-color" style="background:#0000cc; height:6px"></div> Safest Route
+    </div>
+    <!--<div class="legend-item">
+      <div class="legend-color" style="background:#999999"></div> Alternative Routes
+    </div>-->
+  </div>
+
+  <div id="map"></div>
+
+  <!-- Leaflet -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Turf.js for spatial analysis -->
+  <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+
+  <script>
+    // ============================================
+    // YOUR SETTINGS
+    // ============================================
+    var GRAPHHOPPER_KEY = 'bd4659dd-e634-4817-a86c-79b9f299e55b';
+    var GEOJSON_URL = 'https://services8.arcgis.com/tblHe99qQFMcNzpC/arcgis/rest/services/All_Streets_join_FeaturesToJSON/FeatureServer/0/query?where=1%3D1&outFields=*&f=geojson';
+
+    // ============================================
+    // CREATE THE MAP
+    // ============================================
+    var map = L.map('map').setView([45.5051, -122.6750], 12);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: 'Map data: OpenStreetMap contributors'
+    }).addTo(map);
+
+    // ============================================
+    // COLOR FUNCTION
+    // ============================================
+    function getCrashColor(crashcost) {
+      if (crashcost > 500) return '#CC0000';
+      if (crashcost > 300) return '#FF4500';
+      if (crashcost > 200) return '#FF8C00';
+      return '#FFD700';
+    }
+
+    // ============================================
+    // LOAD CRASH ROADS GEOJSON
+    // ============================================
+    var crashData = null;
+    var routeLayers = [];
+    var startMarker = null;
+    var endMarker = null;
+
+    document.getElementById('status').textContent = 'Loading crash data...';
+
+    fetch(GEOJSON_URL)
+      .then(function(response) { return response.json(); })
+      .then(function(data) {
+        crashData = data;
+
+        L.geoJSON(data, {
+          style: function(feature) {
+            return {
+              color:   getCrashColor(feature.properties.CrashCost),
+              weight:  4,
+              opacity: 0.8
+            };
+          },
+          onEachFeature: function(feature, layer) {
+            layer.bindPopup(
+              '<b>' + (feature.properties.STREETNAME || 'Unknown Road') + '</b><br>' +
+              'Crash Risk Score: ' + feature.properties.CrashCost + '<br>' +
+              'Total Crashes: ' + feature.properties.Join_Count
+            );
+          }
+        }).addTo(map);
+
+        document.getElementById('status').textContent = 'Enter addresses to route.';
+      })
+      .catch(function(err) {
+        document.getElementById('status').textContent = 'Error loading crash data: ' + err.message;
+      });
+
+    // ============================================
+    // GEOCODE ADDRESS
+    // ============================================
+    function geocodeAddress(address) {
+      var portlandBbox = '-123.2,45.2,-121.8,45.9';
+      var url = 'https://graphhopper.com/api/1/geocode?' +
+        'q=' + encodeURIComponent(address + ' Portland OR') +
+        '&locale=en' +
+        '&limit=1' +
+        '&bbox=' + portlandBbox +
+        '&key=' + GRAPHHOPPER_KEY;
+
+      return fetch(url)
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+          if (!data.hits || data.hits.length === 0) {
+            throw new Error('Address not found: ' + address);
+          }
+          return {
+            lat: data.hits[0].point.lat,
+            lng: data.hits[0].point.lng,
+            name: data.hits[0].name
+          };
+        });
+    }
+
+    // ============================================
+    // SCORE A ROUTE AGAINST CRASH DATA
+    // This is the key function — it measures how
+    // dangerous a route is using your CrashCost data
+    // ============================================
+    function scoreRoute(path) {
+      if (!crashData) return 0;
+
+      // Convert route coordinates to a Turf LineString
+      var routeCoords = path.points.coordinates;
+      var routeLine = turf.lineString(routeCoords);
+
+      // Create a buffer around the route (0.05km = ~50 meters)
+      // This catches crash roads that are near but not exactly on the route
+      var buffer = turf.buffer(routeLine, 0.05, { units: 'kilometers' });
+
+      // Add up CrashCost for all crash roads inside the buffer
+      var totalCrashCost = 0;
+      crashData.features.forEach(function(feature) {
+        try {
+          // Check if this crash road intersects our route buffer
+          var intersects = turf.booleanIntersects(feature, buffer);
+          if (intersects) {
+            totalCrashCost += (feature.properties.CrashCost || 0);
+          }
+        } catch(e) {
+          // Skip any features that cause geometry errors
+        }
+      });
+
+      return totalCrashCost;
+    }
+
+    // ============================================
+    // CLEAR PREVIOUS ROUTES FROM MAP
+    // ============================================
+    function clearRoutes() {
+      routeLayers.forEach(function(layer) { map.removeLayer(layer); });
+      routeLayers = [];
+      if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
+      if (endMarker)   { map.removeLayer(endMarker);   endMarker = null; }
+      document.getElementById('directions').style.display = 'none';
+      document.getElementById('score-summary').style.display = 'none';
+    }
+
+    // ============================================
+    // DRAW ALL ROUTES — safest in green, others gray
+    // ============================================
+    function drawRoutes(paths, safestIndex) {
+      paths.forEach(function(path, i) {
+        var coords = path.points.coordinates.map(function(c) {
+          return [c[1], c[0]];
+        });
+
+        var isSafest = (i === safestIndex);
+
+        var line = L.polyline(coords, {
+          color:   isSafest ? '#0000cc' : '#999999',
+          weight:  isSafest ? 7 : 4,
+          opacity: isSafest ? 0.9 : 0.5,
+          zIndexOffset: isSafest ? 1000 : 0
+        }).addTo(map);
+
+        if (isSafest) {
+          line.bindPopup('Safest Route — lowest crash risk score');
+        } else {
+          line.bindPopup('Alternative route — higher crash risk');
+        }
+
+        routeLayers.push(line);
+
+        // Zoom to safest route
+        if (isSafest) {
+          map.fitBounds(line.getBounds(), { padding: [50, 50] });
+        }
+      });
+    }
+
+    // ============================================
+    // SHOW TURN BY TURN DIRECTIONS
+    // ============================================
+    function showDirections(path) {
+      var steps = path.instructions;
+      var html = '<ol>';
+      steps.forEach(function(step) {
+        html += '<li>' + step.text + '</li>';
+      });
+      html += '</ol>';
+
+      var directionsDiv = document.getElementById('directions');
+      directionsDiv.innerHTML = html;
+      directionsDiv.style.display = 'block';
+    }
+
+    // ============================================
+    // MAIN ROUTING FUNCTION
+    // ============================================
+    function getRoute() {
+      var start = document.getElementById('start').value.trim();
+      var end   = document.getElementById('end').value.trim();
+
+      if (!start || !end) {
+        document.getElementById('status').textContent = 'Please enter both addresses.';
+        return;
+      }
+
+      clearRoutes();
+      document.getElementById('status').textContent = 'Looking up addresses...';
+
+      // Step 1: Geocode both addresses
+      Promise.all([
+        geocodeAddress(start),
+        geocodeAddress(end)
+      ])
+      .then(function(results) {
+        var startCoord = results[0];
+        var endCoord   = results[1];
+
+        document.getElementById('status').textContent = 'Routing...';
+
+        // Step 2: Add start and end markers
+        startMarker = L.marker([startCoord.lat, startCoord.lng])
+          .bindPopup('Start: ' + startCoord.name)
+          .addTo(map);
+        endMarker = L.marker([endCoord.lat, endCoord.lng])
+          .bindPopup('End: ' + endCoord.name)
+          .addTo(map);
+
+        // Step 3: Call GraphHopper for multiple route options
+        var url = 'https://graphhopper.com/api/1/route?' +
+          'point=' + startCoord.lat + ',' + startCoord.lng +
+          '&point=' + endCoord.lat + ',' + endCoord.lng +
+          '&vehicle=car' +
+          '&locale=en' +
+          '&instructions=true' +
+          '&points_encoded=false' +
+          '&algorithm=alternative_route' +
+          '&alternative_route.max_paths=3' +
+          '&key=' + GRAPHHOPPER_KEY;
+
+        return fetch(url)
+          .then(function(response) { return response.json(); });
+      })
+      .then(function(data) {
+        if (data.message) {
+          throw new Error(data.message);
+        }
+
+        var paths = data.paths;
+        document.getElementById('status').textContent =
+          'Scoring ' + paths.length + ' route(s) against crash data...';
+
+        // Step 4: Score each route against your CrashCost data
+        var scores = paths.map(function(path, i) {
+          return {
+            index: i,
+            score: scoreRoute(path),
+            path:  path
+          };
+        });
+
+        // Step 5: Find the route with the lowest crash score
+        var safest = scores.reduce(function(best, current) {
+          return current.score < best.score ? current : best;
+        });
+
+        // Step 6: Draw all routes — safest highlighted in green
+        drawRoutes(paths, safest.index);
+
+        // Step 7: Show directions for the safest route
+        showDirections(safest.path);
+
+        // Step 8: Show score summary
+        var miles = (safest.path.distance / 1609.34).toFixed(1);
+        var mins  = Math.round(safest.path.time / 60000);
+        var summary = document.getElementById('score-summary');
+        summary.innerHTML =
+          '<b>Safest route selected</b><br>' +
+          miles + ' miles &bull; ' + mins + ' min<br>' +
+          'Crash risk score: ' + safest.score +
+          (paths.length > 1 ? ' (vs ' + scores.filter(function(s) { return s.index !== safest.index; }).map(function(s) { return s.score; }).join(', ') + ' for alternatives)' : '');
+        summary.style.display = 'block';
+
+        document.getElementById('status').textContent = 'Safest route highlighted in green.';
+      })
+      .catch(function(err) {
+        document.getElementById('status').textContent = 'Error: ' + err.message;
+      });
+    }
+
+  </script>
+</body>
+</html>
