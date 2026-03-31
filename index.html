@@ -252,7 +252,7 @@
     }
 
     // ============================================
-    // DRAW ALL ROUTES — safest in green, others gray
+    // DRAW ALL ROUTES — safest in blue, others gray
     // ============================================
     function drawRoutes(paths, safestIndex) {
       paths.forEach(function(path, i) {
@@ -372,7 +372,7 @@
           return current.score < best.score ? current : best;
         });
 
-        // Step 6: Draw all routes — safest highlighted in green
+        // Step 6: Draw all routes — safest highlighted in blue
         drawRoutes(paths, safest.index);
 
         // Step 7: Show directions for the safest route
@@ -389,7 +389,7 @@
           (paths.length > 1 ? ' (vs ' + scores.filter(function(s) { return s.index !== safest.index; }).map(function(s) { return s.score; }).join(', ') + ' for alternatives)' : '');
         summary.style.display = 'block';
 
-        document.getElementById('status').textContent = 'Safest route highlighted in green.';
+        document.getElementById('status').textContent = 'Safest route highlighted in blue.';
       })
       .catch(function(err) {
         document.getElementById('status').textContent = 'Error: ' + err.message;
