@@ -111,20 +111,19 @@
 
   <div id="map"></div>
 
-  <!-- Leaflet -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- Turf.js for spatial analysis -->
   <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
 
   <script>
+
     // ============================================
-    // YOUR SETTINGS
+    // SETTINGS
     // ============================================
     var GRAPHHOPPER_KEY = '616e1d33-e98d-490a-ae3e-2506c3d05e88';
     var GEOJSON_URL = 'https://services8.arcgis.com/tblHe99qQFMcNzpC/arcgis/rest/services/All_Streets_join_FeaturesToJSON/FeatureServer/0/query?where=1%3D1&outFields=*&f=geojson';
 
     // ============================================
-    // CREATE THE MAP
+    // MAP SETUP
     // ============================================
     var map = L.map('map').setView([45.5051, -122.6750], 12);
 
@@ -133,7 +132,7 @@
     }).addTo(map);
 
     // ============================================
-    // COLOR FUNCTION
+    // CRASH COLOR FUNCTION
     // ============================================
     function getCrashColor(crashcost) {
       if (crashcost > 500) return '#CC0000';
@@ -143,20 +142,22 @@
     }
 
     // ============================================
-    // LOAD CRASH ROADS GEOJSON
+    // GLOBAL VARIABLES
     // ============================================
     var crashData = null;
     var routeLayers = [];
     var startMarker = null;
     var endMarker = null;
 
+    // ============================================
+    // LOAD CRASH ROADS GEOJSON
+    // ============================================
     document.getElementById('status').textContent = 'Loading crash data...';
 
     fetch(GEOJSON_URL)
       .then(function(response) { return response.json(); })
       .then(function(data) {
         crashData = data;
-
         L.geoJSON(data, {
           style: function(feature) {
             return {
@@ -173,11 +174,11 @@
             );
           }
         }).addTo(map);
-
         document.getElementById('status').textContent = 'Enter addresses to route.';
       })
       .catch(function(err) {
-        document.getElementById('status').textContent = 'Error loading crash data: ' + err.message;
+        console.warn('Crash layer failed:', err.message);
+        document.getElementById('status').textContent = 'Map ready. Enter addresses to route.';
       });
 
     // ============================================
@@ -186,7 +187,7 @@
     function geocodeAddress(address) {
       var portlandBbox = '-123.2,45.2,-121.8,45.9';
       var url = 'https://graphhopper.com/api/1/geocode?' +
-        'q=' + encodeURIComponent(address + ' Portland OR') +
+        'q=' + encodeURIComponent(address) +
         '&locale=en' +
         '&limit=1' +
         '&bbox=' + portlandBbox +
@@ -207,40 +208,26 @@
     }
 
     // ============================================
-    // SCORE A ROUTE AGAINST CRASH DATA
-    // This is the key function — it measures how
-    // dangerous a route is using your CrashCost data
+    // SCORE ROUTE AGAINST CRASH DATA
     // ============================================
     function scoreRoute(path) {
       if (!crashData) return 0;
-
-      // Convert route coordinates to a Turf LineString
       var routeCoords = path.points.coordinates;
       var routeLine = turf.lineString(routeCoords);
-
-      // Create a buffer around the route (0.05km = ~50 meters)
-      // This catches crash roads that are near but not exactly on the route
       var buffer = turf.buffer(routeLine, 0.05, { units: 'kilometers' });
-
-      // Add up CrashCost for all crash roads inside the buffer
       var totalCrashCost = 0;
       crashData.features.forEach(function(feature) {
         try {
-          // Check if this crash road intersects our route buffer
-          var intersects = turf.booleanIntersects(feature, buffer);
-          if (intersects) {
+          if (turf.booleanIntersects(feature, buffer)) {
             totalCrashCost += (feature.properties.CrashCost || 0);
           }
-        } catch(e) {
-          // Skip any features that cause geometry errors
-        }
+        } catch(e) {}
       });
-
       return totalCrashCost;
     }
 
     // ============================================
-    // CLEAR PREVIOUS ROUTES FROM MAP
+    // CLEAR ROUTES
     // ============================================
     function clearRoutes() {
       routeLayers.forEach(function(layer) { map.removeLayer(layer); });
@@ -252,58 +239,70 @@
     }
 
     // ============================================
-    // DRAW ALL ROUTES — safest in blue, others gray
+    // DRAW ROUTES
+    // safestIndex = index of the safest path
     // ============================================
-  function drawRoutes(paths, safestIndex) {
-  var allBounds = [];
+    function drawRoutes(allPaths, safestIndex) {
+      console.log('drawRoutes called — total paths:', allPaths.length, '— safest index:', safestIndex);
 
-  // LOOP 1: Draw ALL alternative routes first
-  paths.forEach(function(path, i) {
-    if (i === safestIndex) return; // skip safest for now
+      var allBounds = [];
+      var i, coords, line;
 
-    var coords = path.points.coordinates.map(function(c) {
-      return [c[1], c[0]];
-    });
+      // STEP A: Draw alternative routes first (so safest draws on top)
+      for (i = 0; i < allPaths.length; i++) {
+        if (i === safestIndex) continue; // skip safest — draw it last
 
-    var line = L.polyline(coords, {
-      color:   '#FF0000',  // bright red — temporary for testing
-      weight:  6,
-      opacity: 1.0
-    }).addTo(map);
+        coords = allPaths[i].points.coordinates.map(function(c) {
+          return [c[1], c[0]];
+        });
 
-    line.bindPopup('<b>Alternative Route</b><br>Higher crash risk than safest');
-    routeLayers.push(line);
+        console.log('Drawing alternative route index', i, '— coords:', coords.length);
 
-    coords.forEach(function(c) { allBounds.push(c); });
-    console.log('Drew alternative route', i, 'with', coords.length, 'points');
-  });
+        line = L.polyline(coords, {
+          color:   '#999999',
+          weight:  4,
+          opacity: 0.6
+        }).addTo(map);
 
-  // LOOP 2: Draw safest route ON TOP of alternatives
-  var safestCoords = paths[safestIndex].points.coordinates.map(function(c) {
-    return [c[1], c[0]];
-  });
+        line.bindPopup('<b>Alternative Route</b><br>Higher crash risk than safest');
+        routeLayers.push(line);
 
-  var safestLine = L.polyline(safestCoords, {
-    color:   '#0000cc',
-    weight:  7,
-    opacity: 0.9
-  }).addTo(map);
+        for (var j = 0; j < coords.length; j++) {
+          allBounds.push(coords[j]);
+        }
+      }
 
-  safestLine.bindPopup('<b>Safest Route</b><br>Lowest crash risk score');
-  safestLine.bringToFront();
-  routeLayers.push(safestLine);
+      // STEP B: Draw safest route last so it appears on top
+      coords = allPaths[safestIndex].points.coordinates.map(function(c) {
+        return [c[1], c[0]];
+      });
 
-  safestCoords.forEach(function(c) { allBounds.push(c); });
-  console.log('Drew safest route', safestIndex, 'with', safestCoords.length, 'points');
+      console.log('Drawing safest route index', safestIndex, '— coords:', coords.length);
 
-  // Zoom to show everything
-  if (allBounds.length > 0) {
-    map.fitBounds(L.latLngBounds(allBounds), { padding: [50, 50] });
-  }
-}
+      line = L.polyline(coords, {
+        color:   '#0000cc',
+        weight:  7,
+        opacity: 0.9
+      }).addTo(map);
+
+      line.bindPopup('<b>Safest Route</b><br>Lowest crash risk score');
+      line.bringToFront();
+      routeLayers.push(line);
+
+      for (var k = 0; k < coords.length; k++) {
+        allBounds.push(coords[k]);
+      }
+
+      // STEP C: Zoom to fit all routes
+      if (allBounds.length > 0) {
+        map.fitBounds(L.latLngBounds(allBounds), { padding: [50, 50] });
+      }
+
+      console.log('drawRoutes complete — layers added:', routeLayers.length);
+    }
 
     // ============================================
-    // SHOW TURN BY TURN DIRECTIONS
+    // SHOW DIRECTIONS
     // ============================================
     function showDirections(path) {
       var steps = path.instructions;
@@ -312,7 +311,6 @@
         html += '<li>' + step.text + '</li>';
       });
       html += '</ol>';
-
       var directionsDiv = document.getElementById('directions');
       directionsDiv.innerHTML = html;
       directionsDiv.style.display = 'block';
@@ -333,7 +331,6 @@
       clearRoutes();
       document.getElementById('status').textContent = 'Looking up addresses...';
 
-      // Step 1: Geocode both addresses
       Promise.all([
         geocodeAddress(start),
         geocodeAddress(end)
@@ -344,7 +341,6 @@
 
         document.getElementById('status').textContent = 'Routing...';
 
-        // Step 2: Add start and end markers
         startMarker = L.marker([startCoord.lat, startCoord.lng])
           .bindPopup('Start: ' + startCoord.name)
           .addTo(map);
@@ -352,7 +348,6 @@
           .bindPopup('End: ' + endCoord.name)
           .addTo(map);
 
-        // Step 3: Call GraphHopper for multiple route options
         var url = 'https://graphhopper.com/api/1/route?' +
           'point=' + startCoord.lat + ',' + startCoord.lng +
           '&point=' + endCoord.lat + ',' + endCoord.lng +
@@ -362,6 +357,8 @@
           '&points_encoded=false' +
           '&algorithm=alternative_route' +
           '&alternative_route.max_paths=3' +
+          '&alternative_route.max_weight_factor=2.0' +
+          '&alternative_route.max_share_factor=0.8' +
           '&key=' + GRAPHHOPPER_KEY;
 
         return fetch(url)
@@ -373,44 +370,58 @@
         }
 
         var paths = data.paths;
-        console.log('Paths returned:', paths.length, 'indexes:', paths.map(function(p,i){return i;}));
+        console.log('GraphHopper returned', paths.length, 'path(s)');
+
         document.getElementById('status').textContent =
           'Scoring ' + paths.length + ' route(s) against crash data...';
 
-        // Step 4: Score each route against your CrashCost data
-        var scores = paths.map(function(path, i) {
-          return {
+        // Score each route
+        var scores = [];
+        for (var i = 0; i < paths.length; i++) {
+          scores.push({
             index: i,
-            score: scoreRoute(path),
-            path:  path
-          };
-        });
+            score: scoreRoute(paths[i]),
+            path:  paths[i]
+          });
+        }
 
-        // Step 5: Find the route with the lowest crash score
-        var safest = scores.reduce(function(best, current) {
-          return current.score < best.score ? current : best;
-        });
+        // Find safest
+        var safest = scores[0];
+        for (var j = 1; j < scores.length; j++) {
+          if (scores[j].score < safest.score) {
+            safest = scores[j];
+          }
+        }
 
-        // Step 6: Draw all routes — safest highlighted in blue
+        console.log('Scores:', scores.map(function(s) { return s.index + ':' + s.score; }));
+        console.log('Safest is index', safest.index, 'with score', safest.score);
+
+        // Draw routes
         drawRoutes(paths, safest.index);
 
-        // Step 7: Show directions for the safest route
+        // Show directions
         showDirections(safest.path);
 
-        // Step 8: Show score summary
+        // Show score summary
         var miles = (safest.path.distance / 1609.34).toFixed(1);
         var mins  = Math.round(safest.path.time / 60000);
+        var altScores = scores
+          .filter(function(s) { return s.index !== safest.index; })
+          .map(function(s) { return s.score; })
+          .join(', ');
+
         var summary = document.getElementById('score-summary');
         summary.innerHTML =
           '<b>Safest route selected</b><br>' +
           miles + ' miles &bull; ' + mins + ' min<br>' +
           'Crash risk score: ' + safest.score +
-          (paths.length > 1 ? ' (vs ' + scores.filter(function(s) { return s.index !== safest.index; }).map(function(s) { return s.score; }).join(', ') + ' for alternatives)' : '');
+          (paths.length > 1 ? ' (vs ' + altScores + ' for alternatives)' : '');
         summary.style.display = 'block';
 
         document.getElementById('status').textContent = 'Safest route highlighted in blue.';
       })
       .catch(function(err) {
+        console.error('Routing error:', err);
         document.getElementById('status').textContent = 'Error: ' + err.message;
       });
     }
