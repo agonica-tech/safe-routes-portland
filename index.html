@@ -260,6 +260,7 @@
   var allBounds = [];
 
   paths.forEach(function(path, i) {
+    console.log('Path', i, 'start:', coords[0], 'end:', coords[coords.length-1]);
     var coords = path.points.coordinates.map(function(c) {
       return [c[1], c[0]];
     });
