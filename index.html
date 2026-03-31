@@ -255,6 +255,7 @@
     // DRAW ALL ROUTES — safest in blue, others gray
     // ============================================
    function drawRoutes(paths, safestIndex) {
+     console.log('drawRoutes called with', paths.length, 'paths, safest is index', safestIndex);
   // Draw alternatives FIRST so safest route appears on top
   var allBounds = [];
 
@@ -266,6 +267,7 @@
     var isSafest = (i === safestIndex);
 
     // Draw every route — alternatives first, safest last
+    console.log('Drawing path', i, 'coords count:', coords.length, 'isSafest:', isSafest);
     var line = L.polyline(coords, {
       color:   isSafest ? '#0000cc' : '#999999',
       weight:  isSafest ? 7 : 4,
@@ -370,6 +372,7 @@
         }
 
         var paths = data.paths;
+        console.log('Paths returned:', paths.length, 'indexes:', paths.map(function(p,i){return i;}));
         document.getElementById('status').textContent =
           'Scoring ' + paths.length + ' route(s) against crash data...';
 
