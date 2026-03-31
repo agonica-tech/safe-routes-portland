@@ -104,9 +104,9 @@
     <div class="legend-item">
       <div class="legend-color" style="background:#0000cc; height:6px"></div> Safest Route
     </div>
-    <!--<div class="legend-item">
+    <div class="legend-item">
       <div class="legend-color" style="background:#999999"></div> Alternative Routes
-    </div>-->
+    </div>
   </div>
 
   <div id="map"></div>
@@ -254,35 +254,50 @@
     // ============================================
     // DRAW ALL ROUTES — safest in blue, others gray
     // ============================================
-    function drawRoutes(paths, safestIndex) {
-      paths.forEach(function(path, i) {
-        var coords = path.points.coordinates.map(function(c) {
-          return [c[1], c[0]];
-        });
+   function drawRoutes(paths, safestIndex) {
+  // Draw alternatives FIRST so safest route appears on top
+  var allBounds = [];
 
-        var isSafest = (i === safestIndex);
+  paths.forEach(function(path, i) {
+    var coords = path.points.coordinates.map(function(c) {
+      return [c[1], c[0]];
+    });
 
-        var line = L.polyline(coords, {
-          color:   isSafest ? '#0000cc' : '#999999',
-          weight:  isSafest ? 7 : 4,
-          opacity: isSafest ? 0.9 : 0.5,
-          zIndexOffset: isSafest ? 1000 : 0
-        }).addTo(map);
+    var isSafest = (i === safestIndex);
 
-        if (isSafest) {
-          line.bindPopup('Safest Route — lowest crash risk score');
-        } else {
-          line.bindPopup('Alternative route — higher crash risk');
-        }
+    // Draw every route — alternatives first, safest last
+    var line = L.polyline(coords, {
+      color:   isSafest ? '#0000cc' : '#999999',
+      weight:  isSafest ? 7 : 4,
+      opacity: isSafest ? 0.9 : 0.6
+    }).addTo(map);
 
-        routeLayers.push(line);
-
-        // Zoom to safest route
-        if (isSafest) {
-          map.fitBounds(line.getBounds(), { padding: [50, 50] });
-        }
-      });
+    // Add popup to each route
+    if (isSafest) {
+      line.bindPopup('<b>Safest Route</b><br>Lowest crash risk score');
+    } else {
+      line.bindPopup('<b>Alternative Route</b><br>Higher crash risk than safest');
     }
+
+    // Store for cleanup later
+    routeLayers.push(line);
+
+    // Collect all coordinates for zoom
+    coords.forEach(function(c) { allBounds.push(c); });
+  });
+
+  // Bring safest route to front after all are drawn
+  routeLayers.forEach(function(layer, i) {
+    if (i === safestIndex) {
+      layer.bringToFront();
+    }
+  });
+
+  // Zoom to show all routes
+  if (allBounds.length > 0) {
+    map.fitBounds(L.latLngBounds(allBounds), { padding: [50, 50] });
+  }
+}
 
     // ============================================
     // SHOW TURN BY TURN DIRECTIONS
