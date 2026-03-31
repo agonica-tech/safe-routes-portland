@@ -105,7 +105,7 @@
       <div class="legend-color" style="background:#0000cc; height:6px"></div> Safest Route
     </div>
     <div class="legend-item">
-      <div class="legend-color" style="background:#999999"></div> Alternative Routes
+      <div class="legend-color" style="background:#FF6600"></div> Alternative Routes
     </div>
   </div>
 
@@ -242,7 +242,7 @@
     // DRAW ROUTES
     // safestIndex = index of the safest path
     // ============================================
-    function drawRoutes(allPaths, safestIndex) {
+    function drawRoutes(allPaths, safestIndex, scores) {
       console.log('drawRoutes called — total paths:', allPaths.length, '— safest index:', safestIndex);
 
       var allBounds = [];
@@ -259,13 +259,25 @@
         console.log('Drawing alternative route index', i, '— coords:', coords.length);
 
         line = L.polyline(coords, {
-          color:   '#999999',
-          weight:  4,
-          opacity: 0.6
+          color:   '#FF6600',
+          weight:  5,
+          opacity: 0.75
         }).addTo(map);
 
-        line.bindPopup('<b>Alternative Route</b><br>Higher crash risk than safest');
-        routeLayers.push(line);
+
+       (function(p, score) {
+  line.bindPopup(
+    '<b>Alternative Route</b><br>' +
+    'Crash risk score: ' + score + '<br>' +
+    (p.distance / 1609.34).toFixed(1) + ' miles &bull; ' + 
+    Math.round(p.time / 60000) + ' min<br>' +
+    '<small>Click route for details</small>'
+  );
+  line.on('click', function() {
+    showDirections(p);
+    document.getElementById('status').textContent = 'Showing directions for alternative route.';
+  });
+})(allPaths[i], scores[i] ? scores[i].score : '');
 
         for (var j = 0; j < coords.length; j++) {
           allBounds.push(coords[j]);
@@ -397,7 +409,7 @@
         console.log('Safest is index', safest.index, 'with score', safest.score);
 
         // Draw routes
-        drawRoutes(paths, safest.index);
+        drawRoutes(paths, safest.index, scores);
 
         // Show directions
         showDirections(safest.path);
