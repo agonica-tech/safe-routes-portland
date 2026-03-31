@@ -297,7 +297,19 @@
         opacity: 0.9
       }).addTo(map);
 
-      line.bindPopup('<b>Safest Route</b><br>Lowest crash risk score');
+      (function(p, score) {
+  line.bindPopup(
+    '<b>Safest Route</b><br>' +
+    'Crash risk score: ' + score + '<br>' +
+    (p.distance / 1609.34).toFixed(1) + ' miles &bull; ' +
+    Math.round(p.time / 60000) + ' min<br>' +
+    '<small>Click route for details</small>'
+  );
+  line.on('click', function() {
+    showDirections(p);
+    document.getElementById('status').textContent = 'Showing directions for safest route.';
+  });
+})(allPaths[safestIndex], scores[safestIndex] ? scores[safestIndex].score : '');
       line.bringToFront();
       routeLayers.push(line);
 
