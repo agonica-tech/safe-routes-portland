@@ -542,7 +542,7 @@
         .catch(function(err) {
           console.error('Routing error:', err);
           var msg = err.message.indexOf('Address not found') !== -1
-            ? '⚠️ ' + err.message + '. Try adding more detail, or click the map to set points instead.'
+            ? '⚠️ ' + err.message + '. Confirm the address, or click the map to set start and end points instead.'
             : 'Error: ' + err.message;
           document.getElementById('status').textContent = msg;
         });
