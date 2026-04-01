@@ -93,7 +93,7 @@
     <button onclick="getRoute()">Find Safest Route</button>
 
     <!-- Status and click instructions combined -->
-    <div id="status">Enter addresses to route. Or click on the map to set your Start and End points for your trip.</div>
+    <div id="status">Enter addresses and click blue button to route. Or click on the map to set your Start and End points for your trip.</div>
 
     <!-- Reset click points — hidden until first click -->
     <button onclick="resetClickRoute()" id="reset-click-btn"
@@ -225,11 +225,11 @@
             );
           }
         }).addTo(map);
-        document.getElementById('status').textContent = 'Enter addresses to route. Or click on the map to set your Start and End points for your trip.';
+        document.getElementById('status').textContent = 'Enter addresses and click blue button to route. Or click on the map to set your Start and End points for your trip.';
       })
       .catch(function(err) {
         console.warn('Crash layer failed:', err.message);
-        document.getElementById('status').textContent = 'Enter addresses to route. Or click the map to set Start then End point.';
+        document.getElementById('status').textContent = 'Enter addresses and click blue button to route. Or click on the map to set your Start and End points for your trip.';
       });
 
     // ============================================
@@ -351,7 +351,7 @@
       resetClickRoute();
       document.getElementById('start').value = '';
       document.getElementById('end').value   = '';
-      document.getElementById('status').textContent = 'Enter addresses to route. Or click the map to set Start then End point.';
+      document.getElementById('status').textContent = 'Enter addresses and click blue button to route. Or click on the map to set your Start and End points for your trip.';
     }
 
     // ============================================
@@ -665,7 +665,7 @@
       if (clickStart) { map.removeLayer(clickStart); clickStart = null; }
       if (clickEnd)   { map.removeLayer(clickEnd);   clickEnd = null; }
       clickCount = 0;
-      document.getElementById('status').textContent = 'Enter addresses to route. Or click the map to set Start then End point.';
+      document.getElementById('status').textContent = 'Enter addresses and click blue button to route. Or click on the map to set your Start and End points for your trip.';
       document.getElementById('reset-click-btn').style.display = 'none';
     }
 
