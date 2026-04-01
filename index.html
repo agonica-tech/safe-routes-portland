@@ -127,6 +127,7 @@
     var GEOJSON_URL = 'https://services8.arcgis.com/tblHe99qQFMcNzpC/arcgis/rest/services/All_Streets_join_FeaturesToJSON/FeatureServer/0/query?where=1%3D1&outFields=*&f=geojson';
     var ODOT_KEY = 'ba1f3d693d5144b194b402d841cafc62';
     var liveIncidentLayer = null;
+    var liveIncidentData = null; // stores live incidents for route scoring
     
     // ============================================
     // MAP SETUP
@@ -216,21 +217,56 @@
     // ============================================
     // SCORE ROUTE AGAINST CRASH DATA
     // ============================================
-    function scoreRoute(path) {
-      if (!crashData) return 0;
-      var routeCoords = path.points.coordinates;
-      var routeLine = turf.lineString(routeCoords);
-      var buffer = turf.buffer(routeLine, 0.05, { units: 'kilometers' });
-      var totalCrashCost = 0;
-      crashData.features.forEach(function(feature) {
-        try {
-          if (turf.booleanIntersects(feature, buffer)) {
-            totalCrashCost += (feature.properties.CrashCost || 0);
-          }
-        } catch(e) {}
-      });
-      return totalCrashCost;
-    }
+   // ============================================
+// SCORE A ROUTE AGAINST CRASH DATA
+// Combines historical CrashCost data AND
+// live ODOT incidents for a total danger score
+// ============================================
+function scoreRoute(path) {
+  var totalScore = 0;
+
+  // Convert route to Turf LineString
+  var routeCoords = path.points.coordinates;
+  var routeLine = turf.lineString(routeCoords);
+
+  // Create 50 meter buffer around route
+  var buffer = turf.buffer(routeLine, 5, { units: 'kilometers' });
+
+  // ---- PART 1: Historical crash road scoring ----
+  // Adds CrashCost for every high-risk road near the route
+  if (crashData) {
+    crashData.features.forEach(function(feature) {
+      try {
+        if (turf.booleanIntersects(feature, buffer)) {
+          totalScore += (feature.properties.CrashCost || 0);
+        }
+      } catch(e) {}
+    });
+  }
+
+  // ---- PART 2: Live ODOT incident scoring ----
+  // Adds 2000 penalty for every active incident near the route
+  var incidentPenalty = 2000;
+  var incidentCount = 0;
+
+  if (liveIncidentData) {
+    liveIncidentData.features.forEach(function(feature) {
+      try {
+        if (turf.booleanIntersects(feature, buffer)) {
+          totalScore += incidentPenalty;
+          incidentCount++;
+        }
+      } catch(e) {}
+    });
+  }
+
+  // Log scoring details for debugging
+  console.log('Route scored:', totalScore,
+    '(crashes: ' + (totalScore - incidentCount * incidentPenalty) + ',',
+    'live incidents: ' + incidentCount + ' x ' + incidentPenalty + ')');
+
+  return totalScore;
+}
 
     // ============================================
     // CLEAR ROUTES
@@ -444,11 +480,23 @@
           .join(', ');
 
         var summary = document.getElementById('score-summary');
+        // Count live incidents on safest route
+        var incidentPenalty = 2000;
+        var incidentCount = safest.score > 0
+          ? Math.round((safest.score % incidentPenalty) === safest.score % incidentPenalty ? 0 : 0)
+          : 0;
+
+        // Simpler approach — just note if live incidents affected scoring
+        var liveNote = liveIncidentData && liveIncidentData.features.length > 0
+          ? '<br><small>⚠️ ' + liveIncidentData.features.length + ' live ODOT incident(s) factored into scoring</small>'
+          : '';
+
         summary.innerHTML =
           '<b>Safest route selected</b><br>' +
           miles + ' miles &bull; ' + mins + ' min<br>' +
-          'Crash risk score: ' + safest.score +
-          (paths.length > 1 ? ' (vs ' + altScores + ' for alternatives)' : '');
+          'Total risk score: ' + safest.score +
+          (paths.length > 1 ? ' (vs ' + altScores + ' for alternatives)' : '') +
+          liveNote;
         summary.style.display = 'block';
 
         document.getElementById('status').textContent = 'Safest route highlighted in blue.';
@@ -496,6 +544,9 @@ function loadLiveIncidents() {
       });
 
       console.log('Live ODOT incidents loaded:', validFeatures.length, 'of', data.features.length);
+      // Save incident points for use in route scoring
+liveIncidentData = fixedGeojson;
+      
 // Update refresh timestamp in panel
 var now = new Date().toLocaleTimeString();
 var refreshDiv = document.getElementById('incident-refresh');
