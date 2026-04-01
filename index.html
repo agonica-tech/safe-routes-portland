@@ -124,12 +124,12 @@
     <div class="legend-item">
       <div style="width:12px; height:12px; border-radius:50%; background:#FF6600; border:2px solid #CC3300; margin-right:8px"></div> Live ODOT Incidents
     </div>
-  <div class="legend-item" id="crash-points-legend" style="display:none">
-    <div style="width:10px; height:10px; border-radius:50%; background:#CC0000; border:2px solid #880000; margin-right:8px"></div> Fatal Crash
-  </div>
+    <div class="legend-item" id="crash-points-legend" style="display:none">
+      <div style="width:14px; height:14px; border-radius:50%; background:#CC0000; border:2px solid #880000; margin-right:8px"></div> Fatal Crash (2023)
+    </div>
     <div class="legend-item" id="crash-points-legend2" style="display:none">
-  <div style="width:10px; height:10px; border-radius:50%; background:#FF6600; border:2px solid #CC3300; margin-right:8px"></div> Injury Crash
-  </div>
+      <div style="width:10px; height:10px; border-radius:50%; background:#FFD700; border:2px solid #CC9900; margin-right:8px"></div> Injury Crash (2023)
+    </div>
   </div>
 
   <div id="map"></div>
@@ -541,17 +541,18 @@ function loadCrashPoints() {
       console.log('Crash points loaded:', data.features.length);
 
       crashPointsLayer = L.geoJSON(data, {
-        pointToLayer: function(feature, latlng) {
-          var severity = feature.properties.CRASH_SVRTY_CD;
-          return L.circleMarker(latlng, {
-            radius:      6,
-            fillColor:   getCrashPointColor(severity),
-            color:       '#000000',
-            weight:      1,
-            opacity:     1,
-            fillOpacity: 0.85
-          });
-        },
+       pointToLayer: function(feature, latlng) {
+        var severity = feature.properties.CRASH_SVRTY_CD;
+        var isFatal  = severity === 2;
+        return L.circleMarker(latlng, {
+          radius:      isFatal ? 10 : 6,
+          fillColor:   isFatal ? '#CC0000' : '#FFD700',
+          color:       isFatal ? '#880000' : '#CC9900',
+          weight:      2,
+          opacity:     1,
+          fillOpacity: 0.85
+  });
+},
         onEachFeature: function(feature, layer) {
           var p = feature.properties;
           var severityText = p.CRASH_SVRTY_CD === 2 ? 'Fatal' :
