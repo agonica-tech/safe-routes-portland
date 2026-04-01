@@ -18,6 +18,8 @@
       border-radius: 8px;
       box-shadow: 0 2px 10px rgba(0,0,0,0.3);
       width: 300px;
+      max-height: 90vh;
+      overflow-y: auto;
     }
     #panel h2 { margin: 0 0 10px 0; color: #1F4E79; font-size: 16px; }
     #panel p.subtitle { margin: 0 0 10px 0; font-size: 11px; color: #888; }
@@ -41,15 +43,9 @@
       cursor: pointer;
       font-size: 14px;
     }
-    #panel button:hover { background: #5555F2; }
-    #status { margin-top: 8px; font-size: 12px; color: #666; }
+    #panel button:hover { opacity: 0.85; }
+    #status { margin-top: 8px; font-size: 12px; color: #444; line-height: 1.4; }
     #incident-refresh { font-size: 10px; color: #999; margin-top: 4px; }
-    <button 
-    id="crash-toggle-btn" 
-    onclick="toggleCrashPoints()" 
-    style="width:100%; padding:6px; margin-top:6px; background:#888888; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px;">
-    Show 2023 Injury/Fatal Crashes
-    </button>
     #score-summary {
       margin-top: 8px;
       font-size: 12px;
@@ -83,6 +79,7 @@
     #legend h4 { margin: 0 0 8px 0; color: #1F4E79; }
     .legend-item { display: flex; align-items: center; margin: 4px 0; }
     .legend-color { width: 30px; height: 4px; margin-right: 8px; border-radius: 2px; }
+    .legend-divider { border-top: 1px solid #eee; margin: 6px 0; }
   </style>
 </head>
 
@@ -93,22 +90,33 @@
     <input id="start" type="text" placeholder="e.g. 1234 N Main St., Portland OR"/>
     <input id="end"   type="text" placeholder="e.g. Wunderland, Portland OR"/>
     <button onclick="getRoute()">Find Safest Route</button>
-    <div id="status">Enter addresses above to begin.</div>
-        <div id="click-instructions" style="font-size:11px; color:#666; margin-top:6px; padding:6px; background:#f5f5f5; border-radius:4px;">💡 Or click the map to set Start then End point
-  </div>
-    <button onclick="resetClickRoute()" id="reset-click-btn" style="width:100%; padding:5px; margin-top:4px; background:#888; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px; display:none;"> Reset Map Click Points
-  </button>
-        <div id="incident-refresh"></div>
-  <button onclick="clearAll()" style="width:100%; padding:6px; margin-top:4px; background:#666666; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px;">
-Clear Route
+
+    <!-- Status and click instructions combined -->
+    <div id="status">Enter addresses to route. Or click the map to set Start then End point.</div>
+
+    <!-- Reset click points — hidden until first click -->
+    <button onclick="resetClickRoute()" id="reset-click-btn"
+      style="width:100%; padding:5px; margin-top:4px; background:#888; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px; display:none;">
+      Reset Map Click Points
     </button>
-    <button id="crash-toggle-btn"
-  onclick="toggleCrashPoints()"
-  style="width:100%; padding:6px; margin-top:6px; background:#888888; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px;">
-  Show 2023 Injury/Fatal Crashes
-  </button>
-  <div id="score-summary"></div>
-<div id="directions"></div>
+
+    <!-- Live incidents timestamp -->
+    <div id="incident-refresh"></div>
+
+    <!-- Clear Route button — teal/slate blue: distinctive, calm, not on map -->
+    <button onclick="clearAll()"
+      style="width:100%; padding:6px; margin-top:4px; background:#2E7D8C; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px;">
+      Clear Route
+    </button>
+
+    <!-- Show/hide crash points — warm olive green: different from map colors -->
+    <button id="crash-toggle-btn" onclick="toggleCrashPoints()"
+      style="width:100%; padding:6px; margin-top:6px; background:#6B7B2E; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px;">
+      Show 2023 Injury/Fatal Crashes
+    </button>
+
+    <div id="score-summary"></div>
+    <div id="directions"></div>
   </div>
 
   <div id="legend">
@@ -117,10 +125,10 @@ Clear Route
       <div class="legend-color" style="background:#CC0000"></div> Very High Risk
     </div>
     <div class="legend-item">
-      <div class="legend-color" style="background:#FF4500"></div> High Risk 
+      <div class="legend-color" style="background:#FF4500"></div> High Risk
     </div>
     <div class="legend-item">
-      <div class="legend-color" style="background:#FF8C00"></div> Moderate Risk 
+      <div class="legend-color" style="background:#FF8C00"></div> Moderate Risk
     </div>
     <div class="legend-item">
       <div class="legend-color" style="background:#0000cc; height:6px"></div> Safest Route
@@ -128,9 +136,13 @@ Clear Route
     <div class="legend-item">
       <div class="legend-color" style="background:#A927F5"></div> Alternative Routes
     </div>
+    <div class="legend-divider"></div>
     <div class="legend-item">
       <div style="width:12px; height:12px; border-radius:50%; background:#FF6600; border:2px solid #CC3300; margin-right:8px"></div> Live ODOT Incidents
     </div>
+    <!-- Incident refresh timestamp sits right under the ODOT legend item -->
+    <div id="incident-refresh-legend" style="font-size:9px; color:#aaa; margin-left:20px; margin-bottom:4px;"></div>
+    <div class="legend-divider"></div>
     <div class="legend-item" id="crash-points-legend" style="display:none">
       <div style="width:14px; height:14px; border-radius:50%; background:#CC0000; border:2px solid #880000; margin-right:8px"></div> Fatal Crash (2023)
     </div>
@@ -179,12 +191,12 @@ Clear Route
     var startMarker       = null;
     var endMarker         = null;
     var liveIncidentLayer = null;
-    var liveIncidentData  = null; // stored for route scoring
-    var crashPointsLayer   = null;
+    var liveIncidentData  = null;
+    var crashPointsLayer  = null;
     var crashPointsVisible = false;
-    var clickStart  = null; // first map click coordinates
-    var clickEnd    = null; // second map click coordinates
-    var clickCount  = 0;    // tracks which click we're on
+    var clickStart  = null;
+    var clickEnd    = null;
+    var clickCount  = 0;
 
     // ============================================
     // LOAD CRASH ROADS GEOJSON
@@ -211,11 +223,11 @@ Clear Route
             );
           }
         }).addTo(map);
-        document.getElementById('status').textContent = 'Enter addresses to route.';
+        document.getElementById('status').textContent = 'Enter addresses to route. Or click the map to set Start then End point.';
       })
       .catch(function(err) {
         console.warn('Crash layer failed:', err.message);
-        document.getElementById('status').textContent = 'Map ready. Enter addresses to route.';
+        document.getElementById('status').textContent = 'Enter addresses to route. Or click the map to set Start then End point.';
       });
 
     // ============================================
@@ -246,17 +258,13 @@ Clear Route
 
     // ============================================
     // SCORE ROUTE AGAINST CRASH DATA + LIVE INCIDENTS
-    // Historical CrashCost + 2000 per live incident
-    // within 0.03 miles of the route
     // ============================================
     function scoreRoute(path) {
-      var totalScore = 0;
+      var totalScore    = 0;
+      var routeCoords   = path.points.coordinates;
+      var routeLine     = turf.lineString(routeCoords);
+      var buffer        = turf.buffer(routeLine, 0.03, { units: 'miles' });
 
-      var routeCoords = path.points.coordinates;
-      var routeLine   = turf.lineString(routeCoords);
-      var buffer      = turf.buffer(routeLine, 0.03, { units: 'miles' });
-
-      // PART 1: Historical crash road scoring
       if (crashData) {
         crashData.features.forEach(function(feature) {
           try {
@@ -267,7 +275,6 @@ Clear Route
         });
       }
 
-      // PART 2: Live ODOT incident scoring — 2000 per incident
       var incidentPenalty = 2000;
       var incidentCount   = 0;
 
@@ -304,26 +311,18 @@ Clear Route
     }
 
     // ============================================
-    // CLEAR ALL — removes route, markers, and
-    // resets click points and panel text
+    // CLEAR ALL
     // ============================================
     function clearAll() {
-      // Clear route lines and markers
       clearRoutes();
-    
-      // Clear click route markers
       resetClickRoute();
-    
-      // Clear address boxes
       document.getElementById('start').value = '';
       document.getElementById('end').value   = '';
-    
-      // Reset status
-      document.getElementById('status').textContent = 'Enter addresses to route.';
+      document.getElementById('status').textContent = 'Enter addresses to route. Or click the map to set Start then End point.';
     }
+
     // ============================================
     // DRAW ROUTES
-    // Alternatives first, safest last so it draws on top
     // ============================================
     function drawRoutes(allPaths, safestIndex, scores) {
       console.log('drawRoutes called — total paths:', allPaths.length, '— safest index:', safestIndex);
@@ -331,15 +330,12 @@ Clear Route
       var allBounds = [];
       var i, coords, line;
 
-      // STEP A: Draw alternative routes first
       for (i = 0; i < allPaths.length; i++) {
         if (i === safestIndex) continue;
 
         coords = allPaths[i].points.coordinates.map(function(c) {
           return [c[1], c[0]];
         });
-
-        console.log('Drawing alternative route index', i, '— coords:', coords.length);
 
         line = L.polyline(coords, {
           color:   '#A927F5',
@@ -361,19 +357,16 @@ Clear Route
           });
         })(allPaths[i], scores[i] ? scores[i].score : '');
 
-        routeLayers.push(line); // ✅ track for cleanup
+        routeLayers.push(line);
 
         for (var j = 0; j < coords.length; j++) {
           allBounds.push(coords[j]);
         }
       }
 
-      // STEP B: Draw safest route last — on top
       coords = allPaths[safestIndex].points.coordinates.map(function(c) {
         return [c[1], c[0]];
       });
-
-      console.log('Drawing safest route index', safestIndex, '— coords:', coords.length);
 
       line = L.polyline(coords, {
         color:   '#0000cc',
@@ -396,13 +389,12 @@ Clear Route
       })(allPaths[safestIndex], scores[safestIndex] ? scores[safestIndex].score : '');
 
       line.bringToFront();
-      routeLayers.push(line); // ✅ track for cleanup
+      routeLayers.push(line);
 
       for (var k = 0; k < coords.length; k++) {
         allBounds.push(coords[k]);
       }
 
-      // STEP C: Zoom to fit all routes
       if (allBounds.length > 0) {
         map.fitBounds(L.latLngBounds(allBounds), { padding: [50, 50] });
       }
@@ -423,6 +415,29 @@ Clear Route
       var directionsDiv = document.getElementById('directions');
       directionsDiv.innerHTML = html;
       directionsDiv.style.display = 'block';
+    }
+
+    // ============================================
+    // BUILD SCORE SUMMARY
+    // ============================================
+    function buildScoreSummary(safest, scores, paths) {
+      var miles = (safest.path.distance / 1609.34).toFixed(1);
+      var mins  = Math.round(safest.path.time / 60000);
+      var altScores = scores
+        .filter(function(s) { return s.index !== safest.index; })
+        .map(function(s) { return s.score; })
+        .join(', ');
+      var liveNote = liveIncidentData && liveIncidentData.features.length > 0
+        ? '<br><small>⚠️ ' + liveIncidentData.features.length + ' live ODOT incident(s) factored into scoring</small>'
+        : '';
+      var summary = document.getElementById('score-summary');
+      summary.innerHTML =
+        '<b>Safest route selected</b><br>' +
+        miles + ' miles &bull; ' + mins + ' min<br>' +
+        'Total risk score: ' + safest.score +
+        (paths.length > 1 ? ' (vs ' + altScores + ' for alternatives)' : '') +
+        liveNote;
+      summary.style.display = 'block';
     }
 
     // ============================================
@@ -451,86 +466,36 @@ Clear Route
         document.getElementById('status').textContent = 'Routing...';
 
         startMarker = L.marker([startCoord.lat, startCoord.lng])
-          .bindPopup('Start: ' + startCoord.name)
-          .addTo(map);
+          .bindPopup('Start: ' + startCoord.name).addTo(map);
         endMarker = L.marker([endCoord.lat, endCoord.lng])
-          .bindPopup('End: ' + endCoord.name)
-          .addTo(map);
+          .bindPopup('End: ' + endCoord.name).addTo(map);
 
         var url = 'https://graphhopper.com/api/1/route?' +
           'point=' + startCoord.lat + ',' + startCoord.lng +
           '&point=' + endCoord.lat + ',' + endCoord.lng +
-          '&vehicle=car' +
-          '&locale=en' +
-          '&instructions=true' +
-          '&points_encoded=false' +
-          '&algorithm=alternative_route' +
-          '&alternative_route.max_paths=3' +
-          '&alternative_route.max_weight_factor=2.0' +
-          '&alternative_route.max_share_factor=0.8' +
+          '&vehicle=car&locale=en&instructions=true&points_encoded=false' +
+          '&algorithm=alternative_route&alternative_route.max_paths=3' +
+          '&alternative_route.max_weight_factor=2.0&alternative_route.max_share_factor=0.8' +
           '&key=' + GRAPHHOPPER_KEY;
 
-        return fetch(url)
-          .then(function(response) { return response.json(); });
+        return fetch(url).then(function(r) { return r.json(); });
       })
       .then(function(data) {
-        if (data.message) {
-          throw new Error(data.message);
-        }
+        if (data.message) throw new Error(data.message);
 
-        var paths = data.paths;
-        console.log('GraphHopper returned', paths.length, 'path(s)');
-
-        document.getElementById('status').textContent =
-          'Scoring ' + paths.length + ' route(s) against crash data...';
-
-        // Score each route
-        var scores = [];
-        for (var i = 0; i < paths.length; i++) {
-          scores.push({
-            index: i,
-            score: scoreRoute(paths[i]),
-            path:  paths[i]
-          });
-        }
-
-        // Find safest — lowest score
-        var safest = scores[0];
-        for (var j = 1; j < scores.length; j++) {
-          if (scores[j].score < safest.score) {
-            safest = scores[j];
-          }
-        }
+        var paths  = data.paths;
+        var scores = paths.map(function(p, i) {
+          return { index: i, score: scoreRoute(p), path: p };
+        });
+        var safest = scores.reduce(function(best, s) {
+          return s.score < best.score ? s : best;
+        });
 
         console.log('Scores:', scores.map(function(s) { return s.index + ':' + s.score; }));
-        console.log('Safest is index', safest.index, 'with score', safest.score);
 
-        // Draw all routes
         drawRoutes(paths, safest.index, scores);
-
-        // Show directions for safest route
         showDirections(safest.path);
-
-        // Build score summary
-        var miles = (safest.path.distance / 1609.34).toFixed(1);
-        var mins  = Math.round(safest.path.time / 60000);
-        var altScores = scores
-          .filter(function(s) { return s.index !== safest.index; })
-          .map(function(s) { return s.score; })
-          .join(', ');
-
-        var liveNote = liveIncidentData && liveIncidentData.features.length > 0
-          ? '<br><small>⚠️ ' + liveIncidentData.features.length + ' live ODOT incident(s) factored into scoring</small>'
-          : '';
-
-        var summary = document.getElementById('score-summary');
-        summary.innerHTML =
-          '<b>Safest route selected</b><br>' +
-          miles + ' miles &bull; ' + mins + ' min<br>' +
-          'Total risk score: ' + safest.score +
-          (paths.length > 1 ? ' (vs ' + altScores + ' for alternatives)' : '') +
-          liveNote;
-        summary.style.display = 'block';
+        buildScoreSummary(safest, scores, paths);
 
         document.getElementById('status').textContent = 'Safest route highlighted in blue.';
       })
@@ -541,244 +506,167 @@ Clear Route
     }
 
     // ============================================
-// CRASH POINTS LAYER — 2023 Injury and Fatal
-// Filtered to CRASH_SVRTY_CD IN (2,4) only
-// Off by default — toggled by button in panel
-// ============================================
-var CRASH_POINTS_URL =
-  'https://services8.arcgis.com/tblHe99qQFMcNzpC/ArcGIS/rest/services/Crashes_2023_Final/FeatureServer/6/query?' +
-  'where=CRASH_SVRTY_CD+IN+(2,4)' +
-  '&outFields=CRASH_SVRTY_CD,ALCHL_INVLV_FLG' +
-  '&f=geojson';
-
-function getCrashPointColor(severityCode) {
-  if (severityCode === 2) return '#CC0000'; // Fatal — dark red
-  if (severityCode === 4) return '#FF6600'; // Injury — orange
-  return '#999999';
-}
-
-function loadCrashPoints() {
-  document.getElementById('crash-toggle-btn').textContent = 'Loading crashes...';
-
-  fetch(CRASH_POINTS_URL)
-    .then(function(response) {
-      if (!response.ok) throw new Error('Crash points error: ' + response.status);
-      return response.json();
-    })
-    .then(function(data) {
-      console.log('Crash points loaded:', data.features.length);
-
-      crashPointsLayer = L.geoJSON(data, {
-       pointToLayer: function(feature, latlng) {
-        var severity = feature.properties.CRASH_SVRTY_CD;
-        var isFatal  = severity === 2;
-        return L.circleMarker(latlng, {
-          radius:      isFatal ? 10 : 6,
-          fillColor:   isFatal ? '#CC0000' : '#FFD700',
-          color:       isFatal ? '#880000' : '#CC9900',
-          weight:      2,
-          opacity:     1,
-          fillOpacity: 0.85
-  });
-},
-        onEachFeature: function(feature, layer) {
-          var p = feature.properties;
-          var severityText = p.CRASH_SVRTY_CD === 2 ? 'Fatal' :
-                             p.CRASH_SVRTY_CD === 4 ? 'Non-Fatal Injury' : 'Unknown';
-          var alcoholText  = p.ALCHL_INVLV_FLG === 1 ? 'Yes' : 'No';
-          layer.bindPopup(
-            '<b>2023 Crash</b><br>' +
-            '<b>Severity:</b> ' + severityText + '<br>' +
-            '<b>Alcohol Involved:</b> ' + alcoholText
-          );
-        }
-      }).addTo(map);
-
-      crashPointsVisible = true;
-      document.getElementById('crash-toggle-btn').textContent = 'Hide 2023 Injury/Fatal Crashes';
-      document.getElementById('crash-toggle-btn').style.background = '#CC0000';
-      document.getElementById('crash-points-legend').style.display = 'flex';
-      document.getElementById('crash-points-legend2').style.display = 'flex';
-    })
-    .catch(function(err) {
-      console.warn('Crash points failed:', err.message);
-      document.getElementById('crash-toggle-btn').textContent = 'Show 2023 Injury/Fatal Crashes';
-      document.getElementById('crash-toggle-btn').style.background = '#888888';
-    });
-}
-
-function toggleCrashPoints() {
-  if (crashPointsVisible) {
-    if (crashPointsLayer) {
-      map.removeLayer(crashPointsLayer);
-      crashPointsLayer = null;
-    }
-    crashPointsVisible = false;
-    document.getElementById('crash-toggle-btn').textContent = 'Show 2023 Injury/Fatal Crashes';
-    document.getElementById('crash-toggle-btn').style.background = '#888888';
-    document.getElementById('crash-points-legend').style.display = 'none';
-    document.getElementById('crash-points-legend2').style.display = 'none';
-  } else {
-    loadCrashPoints();
-  }
-}
+    // CRASH POINTS LAYER — 2023 Injury and Fatal
     // ============================================
-// MAP CLICK ROUTING
-// First click = start, second click = end
-// Route calculates automatically on second click
-// ============================================
-map.on('click', function(e) {
-  // Ignore clicks on markers and popups
-  if (e.originalEvent.target !== document.getElementById('map') &&
-      e.originalEvent.target.tagName !== 'CANVAS') return;
+    var CRASH_POINTS_URL =
+      'https://services8.arcgis.com/tblHe99qQFMcNzpC/ArcGIS/rest/services/Crashes_2023_Final/FeatureServer/6/query?' +
+      'where=CRASH_SVRTY_CD+IN+(2,4)&outFields=CRASH_SVRTY_CD,ALCHL_INVLV_FLG&f=geojson';
 
-  var lat = e.latlng.lat;
-  var lng = e.latlng.lng;
+    function loadCrashPoints() {
+      document.getElementById('crash-toggle-btn').textContent = 'Loading crashes...';
 
-  if (clickCount === 0) {
-    // First click — set start point
-    if (clickStart) map.removeLayer(clickStart);
+      fetch(CRASH_POINTS_URL)
+        .then(function(response) {
+          if (!response.ok) throw new Error('Crash points error: ' + response.status);
+          return response.json();
+        })
+        .then(function(data) {
+          console.log('Crash points loaded:', data.features.length);
 
-    clickStart = L.marker([lat, lng], {
-      icon: L.divIcon({
-        className: '',
-        html: '<div style="background:#1F6B2E; color:white; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; font-size:14px; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3);">S</div>',
-        iconSize: [28, 28],
-        iconAnchor: [14, 14]
-      })
-    }).addTo(map);
+          crashPointsLayer = L.geoJSON(data, {
+            pointToLayer: function(feature, latlng) {
+              var isFatal = feature.properties.CRASH_SVRTY_CD === 2;
+              return L.circleMarker(latlng, {
+                radius:      isFatal ? 10 : 6,
+                fillColor:   isFatal ? '#CC0000' : '#FFD700',
+                color:       isFatal ? '#880000' : '#CC9900',
+                weight:      2,
+                opacity:     1,
+                fillOpacity: 0.85
+              });
+            },
+            onEachFeature: function(feature, layer) {
+              var p = feature.properties;
+              var severityText = p.CRASH_SVRTY_CD === 2 ? 'Fatal' : 'Non-Fatal Injury';
+              var alcoholText  = p.ALCHL_INVLV_FLG === 1 ? 'Yes' : 'No';
+              layer.bindPopup(
+                '<b>2023 Crash</b><br>' +
+                '<b>Severity:</b> ' + severityText + '<br>' +
+                '<b>Alcohol Involved:</b> ' + alcoholText
+              );
+            }
+          }).addTo(map);
 
-    clickStart.bindPopup('Start point — now click your destination').openPopup();
-    clickCount = 1;
-
-    document.getElementById('click-instructions').textContent = '📍 Start set — now click your destination';
-    document.getElementById('click-instructions').style.color = '#1F6B2E';
-    document.getElementById('reset-click-btn').style.display = 'block';
-
-  } else if (clickCount === 1) {
-    // Second click — set end point and route
-    if (clickEnd) map.removeLayer(clickEnd);
-
-    clickEnd = L.marker([lat, lng], {
-      icon: L.divIcon({
-        className: '',
-        html: '<div style="background:#CC0000; color:white; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; font-size:14px; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3);">E</div>',
-        iconSize: [28, 28],
-        iconAnchor: [14, 14]
-      })
-    }).addTo(map);
-
-    clickCount = 2;
-
-    document.getElementById('click-instructions').textContent = '🔄 Calculating safest route...';
-    document.getElementById('click-instructions').style.color = '#666';
-
-    // Route using clicked coordinates directly
-    routeFromCoordinates(
-      { lat: clickStart.getLatLng().lat, lng: clickStart.getLatLng().lng, name: 'Map Start' },
-      { lat: lat, lng: lng, name: 'Map End' }
-    );
-
-  } else {
-    // Third click — reset and start over
-    resetClickRoute();
-  }
-});
-
-function resetClickRoute() {
-  if (clickStart) { map.removeLayer(clickStart); clickStart = null; }
-  if (clickEnd)   { map.removeLayer(clickEnd);   clickEnd = null; }
-  clickCount = 0;
-  document.getElementById('click-instructions').textContent = '💡 Or click the map to set Start then End point';
-  document.getElementById('click-instructions').style.color = '#666';
-  document.getElementById('reset-click-btn').style.display = 'none';
-}
-
-// Routes using coordinate objects directly
-// Skips geocoding — goes straight to GraphHopper routing
-function routeFromCoordinates(startCoord, endCoord) {
-  clearRoutes();
-  document.getElementById('status').textContent = 'Routing from map points...';
-
-  var url = 'https://graphhopper.com/api/1/route?' +
-    'point=' + startCoord.lat + ',' + startCoord.lng +
-    '&point=' + endCoord.lat + ',' + endCoord.lng +
-    '&vehicle=car' +
-    '&locale=en' +
-    '&instructions=true' +
-    '&points_encoded=false' +
-    '&algorithm=alternative_route' +
-    '&alternative_route.max_paths=3' +
-    '&alternative_route.max_weight_factor=2.0' +
-    '&alternative_route.max_share_factor=0.8' +
-    '&key=' + GRAPHHOPPER_KEY;
-
-  fetch(url)
-    .then(function(response) { return response.json(); })
-    .then(function(data) {
-      if (data.message) throw new Error(data.message);
-
-      var paths = data.paths;
-      document.getElementById('status').textContent =
-        'Scoring ' + paths.length + ' route(s) against crash data...';
-
-      // Score each route
-      var scores = [];
-      for (var i = 0; i < paths.length; i++) {
-        scores.push({
-          index: i,
-          score: scoreRoute(paths[i]),
-          path:  paths[i]
+          crashPointsVisible = true;
+          document.getElementById('crash-toggle-btn').textContent = 'Hide 2023 Injury/Fatal Crashes';
+          document.getElementById('crash-toggle-btn').style.background = '#8B2500';
+          document.getElementById('crash-points-legend').style.display = 'flex';
+          document.getElementById('crash-points-legend2').style.display = 'flex';
+        })
+        .catch(function(err) {
+          console.warn('Crash points failed:', err.message);
+          document.getElementById('crash-toggle-btn').textContent = 'Show 2023 Injury/Fatal Crashes';
+          document.getElementById('crash-toggle-btn').style.background = '#6B7B2E';
         });
+    }
+
+    function toggleCrashPoints() {
+      if (crashPointsVisible) {
+        if (crashPointsLayer) { map.removeLayer(crashPointsLayer); crashPointsLayer = null; }
+        crashPointsVisible = false;
+        document.getElementById('crash-toggle-btn').textContent = 'Show 2023 Injury/Fatal Crashes';
+        document.getElementById('crash-toggle-btn').style.background = '#6B7B2E';
+        document.getElementById('crash-points-legend').style.display = 'none';
+        document.getElementById('crash-points-legend2').style.display = 'none';
+      } else {
+        loadCrashPoints();
       }
+    }
 
-      // Find safest
-      var safest = scores[0];
-      for (var j = 1; j < scores.length; j++) {
-        if (scores[j].score < safest.score) safest = scores[j];
+    // ============================================
+    // MAP CLICK ROUTING
+    // ============================================
+    map.on('click', function(e) {
+      if (e.originalEvent.target !== document.getElementById('map') &&
+          e.originalEvent.target.tagName !== 'CANVAS') return;
+
+      var lat = e.latlng.lat;
+      var lng = e.latlng.lng;
+
+      if (clickCount === 0) {
+        if (clickStart) map.removeLayer(clickStart);
+        clickStart = L.marker([lat, lng], {
+          icon: L.divIcon({
+            className: '',
+            html: '<div style="background:#1F6B2E; color:white; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; font-size:14px; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3);">S</div>',
+            iconSize: [28, 28], iconAnchor: [14, 14]
+          })
+        }).addTo(map);
+        clickStart.bindPopup('Start point — now click your destination').openPopup();
+        clickCount = 1;
+        document.getElementById('status').textContent = 'Start set — now click your destination on the map.';
+        document.getElementById('reset-click-btn').style.display = 'block';
+
+      } else if (clickCount === 1) {
+        if (clickEnd) map.removeLayer(clickEnd);
+        clickEnd = L.marker([lat, lng], {
+          icon: L.divIcon({
+            className: '',
+            html: '<div style="background:#CC0000; color:white; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; font-size:14px; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3);">E</div>',
+            iconSize: [28, 28], iconAnchor: [14, 14]
+          })
+        }).addTo(map);
+        clickCount = 2;
+        document.getElementById('status').textContent = 'Calculating safest route...';
+        routeFromCoordinates(
+          { lat: clickStart.getLatLng().lat, lng: clickStart.getLatLng().lng, name: 'Map Start' },
+          { lat: lat, lng: lng, name: 'Map End' }
+        );
+      } else {
+        resetClickRoute();
       }
-
-      console.log('Click route scores:', scores.map(function(s) { return s.index + ':' + s.score; }));
-
-      drawRoutes(paths, safest.index, scores);
-      showDirections(safest.path);
-
-      var miles = (safest.path.distance / 1609.34).toFixed(1);
-      var mins  = Math.round(safest.path.time / 60000);
-      var altScores = scores
-        .filter(function(s) { return s.index !== safest.index; })
-        .map(function(s) { return s.score; })
-        .join(', ');
-
-      var liveNote = liveIncidentData && liveIncidentData.features.length > 0
-        ? '<br><small>⚠️ ' + liveIncidentData.features.length + ' live ODOT incident(s) factored into scoring</small>'
-        : '';
-
-      var summary = document.getElementById('score-summary');
-      summary.innerHTML =
-        '<b>Safest route selected</b><br>' +
-        miles + ' miles &bull; ' + mins + ' min<br>' +
-        'Total risk score: ' + safest.score +
-        (paths.length > 1 ? ' (vs ' + altScores + ' for alternatives)' : '') +
-        liveNote;
-      summary.style.display = 'block';
-
-      document.getElementById('status').textContent = 'Safest route highlighted in blue.';
-      document.getElementById('click-instructions').textContent = '✅ Route found — click map to start again';
-    })
-    .catch(function(err) {
-      console.error('Click routing error:', err);
-      document.getElementById('status').textContent = 'Error: ' + err.message;
-      document.getElementById('click-instructions').textContent = '💡 Or click the map to set Start then End point';
     });
-}
+
+    function resetClickRoute() {
+      if (clickStart) { map.removeLayer(clickStart); clickStart = null; }
+      if (clickEnd)   { map.removeLayer(clickEnd);   clickEnd = null; }
+      clickCount = 0;
+      document.getElementById('status').textContent = 'Enter addresses to route. Or click the map to set Start then End point.';
+      document.getElementById('reset-click-btn').style.display = 'none';
+    }
+
+    function routeFromCoordinates(startCoord, endCoord) {
+      clearRoutes();
+
+      var url = 'https://graphhopper.com/api/1/route?' +
+        'point=' + startCoord.lat + ',' + startCoord.lng +
+        '&point=' + endCoord.lat + ',' + endCoord.lng +
+        '&vehicle=car&locale=en&instructions=true&points_encoded=false' +
+        '&algorithm=alternative_route&alternative_route.max_paths=3' +
+        '&alternative_route.max_weight_factor=2.0&alternative_route.max_share_factor=0.8' +
+        '&key=' + GRAPHHOPPER_KEY;
+
+      fetch(url)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.message) throw new Error(data.message);
+
+          var paths  = data.paths;
+          var scores = paths.map(function(p, i) {
+            return { index: i, score: scoreRoute(p), path: p };
+          });
+          var safest = scores.reduce(function(best, s) {
+            return s.score < best.score ? s : best;
+          });
+
+          console.log('Click route scores:', scores.map(function(s) { return s.index + ':' + s.score; }));
+
+          drawRoutes(paths, safest.index, scores);
+          showDirections(safest.path);
+          buildScoreSummary(safest, scores, paths);
+
+          document.getElementById('status').textContent = 'Safest route highlighted in blue.';
+        })
+        .catch(function(err) {
+          console.error('Click routing error:', err);
+          document.getElementById('status').textContent = 'Error: ' + err.message;
+        });
+    }
+
     // ============================================
     // LOAD LIVE ODOT INCIDENTS
-    // Public ArcGIS layer — no API key needed
-    // Refreshes every 5 minutes automatically
     // ============================================
     function loadLiveIncidents() {
-
       var odotUrl = 'https://services.arcgis.com/uUvqNMGPm7axC2dD/arcgis/rest/services/ODOT_Traffic_Incidents/FeatureServer/0/query?' +
         'where=1%3D1' +
         '&outFields=attributes_odotCategoryDescript,attributes_comments,attributes_odotSeverityDescript,attributes_eventSubTypeName,attributes_route,attributes_beginMarker,attributes_lastUpdated,attributes_startLatitude,attributes_startLongitude,attributes_locationName' +
@@ -790,70 +678,47 @@ function routeFromCoordinates(startCoord, endCoord) {
           return response.json();
         })
         .then(function(data) {
+          if (liveIncidentLayer) { map.removeLayer(liveIncidentLayer); liveIncidentLayer = null; }
 
-          // Remove previous incident layer
-          if (liveIncidentLayer) {
-            map.removeLayer(liveIncidentLayer);
-            liveIncidentLayer = null;
-          }
-
-          // Filter to features with valid coordinates
           var validFeatures = data.features.filter(function(f) {
             var p = f.properties;
-            return p.attributes_startLatitude &&
-                   p.attributes_startLongitude &&
-                   p.attributes_startLatitude !== 0 &&
-                   p.attributes_startLongitude !== 0;
+            return p.attributes_startLatitude && p.attributes_startLongitude &&
+                   p.attributes_startLatitude !== 0 && p.attributes_startLongitude !== 0;
           });
 
-          // Build GeoJSON using lat/lng from properties
-          // (geometry field is null in this service)
           var fixedGeojson = {
             type: 'FeatureCollection',
             features: validFeatures.map(function(f) {
               var p = f.properties;
               return {
                 type: 'Feature',
-                geometry: {
-                  type: 'Point',
-                  coordinates: [
-                    p.attributes_startLongitude,
-                    p.attributes_startLatitude
-                  ]
-                },
+                geometry: { type: 'Point', coordinates: [p.attributes_startLongitude, p.attributes_startLatitude] },
                 properties: p
               };
             })
           };
 
-          // Save to global for route scoring
           liveIncidentData = fixedGeojson;
-
           console.log('Live ODOT incidents loaded:', validFeatures.length, 'of', data.features.length);
-          console.log('liveIncidentData set with', liveIncidentData.features.length, 'features');
 
-          // Update refresh timestamp in panel
+          // Update timestamp in panel AND in legend
           var now = new Date().toLocaleTimeString();
-          var refreshDiv = document.getElementById('incident-refresh');
-          if (refreshDiv) refreshDiv.textContent = 'Live incidents updated: ' + now;
+          var panelDiv  = document.getElementById('incident-refresh');
+          var legendDiv = document.getElementById('incident-refresh-legend');
+          if (panelDiv)  panelDiv.textContent  = 'Live incidents updated: ' + now;
+          if (legendDiv) legendDiv.textContent  = 'Updated: ' + now;
 
-          // Add orange circle markers to map
           liveIncidentLayer = L.geoJSON(fixedGeojson, {
             pointToLayer: function(feature, latlng) {
               return L.circleMarker(latlng, {
-                radius:      9,
-                fillColor:   '#FF6600',
-                color:       '#CC3300',
-                weight:      2,
-                opacity:     1,
-                fillOpacity: 0.85
+                radius: 9, fillColor: '#FF6600', color: '#CC3300',
+                weight: 2, opacity: 1, fillOpacity: 0.85
               });
             },
             onEachFeature: function(feature, layer) {
               var p = feature.properties;
               var updated = p.attributes_lastUpdated
-                ? new Date(p.attributes_lastUpdated).toLocaleString()
-                : 'Unknown';
+                ? new Date(p.attributes_lastUpdated).toLocaleString() : 'Unknown';
               layer.bindPopup(
                 '<b>🚨 ' + (p.attributes_odotCategoryDescript || 'Active Incident') + '</b><br>' +
                 '<b>Type:</b> ' + (p.attributes_eventSubTypeName || 'Unknown') + '<br>' +
@@ -865,14 +730,10 @@ function routeFromCoordinates(startCoord, endCoord) {
               );
             }
           }).addTo(map);
-
         })
-        .catch(function(err) {
-          console.warn('Live incidents failed:', err.message);
-        });
+        .catch(function(err) { console.warn('Live incidents failed:', err.message); });
     }
 
-    // Load immediately then refresh every 5 minutes
     loadLiveIncidents();
     setInterval(loadLiveIncidents, 300000);
 
