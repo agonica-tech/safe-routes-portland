@@ -93,6 +93,10 @@
     <input id="start" type="text" placeholder="e.g. 1234 N Main St., Portland OR"/>
     <input id="end"   type="text" placeholder="e.g. Wunderland, Portland OR"/>
     <button onclick="getRoute()">Find Safest Route</button>
+    <div id="click-instructions" style="font-size:11px; color:#666; margin-top:6px; padding:6px; background:#f5f5f5; border-radius:4px;">💡 Or click the map to set Start then End point
+  </div>
+    <button onclick="resetClickRoute()" id="reset-click-btn" style="width:100%; padding:5px; margin-top:4px; background:#888; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px; display:none;"> Reset Map Click Points
+  </button>
     <div id="status">Enter addresses above to begin.</div>
     <div id="incident-refresh"></div>
   <button id="crash-toggle-btn"
@@ -175,6 +179,9 @@
     var liveIncidentData  = null; // stored for route scoring
     var crashPointsLayer   = null;
     var crashPointsVisible = false;
+    var clickStart  = null; // first map click coordinates
+    var clickEnd    = null; // second map click coordinates
+    var clickCount  = 0;    // tracks which click we're on
 
     // ============================================
     // LOAD CRASH ROADS GEOJSON
@@ -593,6 +600,156 @@ function toggleCrashPoints() {
   } else {
     loadCrashPoints();
   }
+}
+    // ============================================
+// MAP CLICK ROUTING
+// First click = start, second click = end
+// Route calculates automatically on second click
+// ============================================
+map.on('click', function(e) {
+  // Ignore clicks on markers and popups
+  if (e.originalEvent.target !== document.getElementById('map') &&
+      e.originalEvent.target.tagName !== 'CANVAS') return;
+
+  var lat = e.latlng.lat;
+  var lng = e.latlng.lng;
+
+  if (clickCount === 0) {
+    // First click — set start point
+    if (clickStart) map.removeLayer(clickStart);
+
+    clickStart = L.marker([lat, lng], {
+      icon: L.divIcon({
+        className: '',
+        html: '<div style="background:#1F6B2E; color:white; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; font-size:14px; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3);">S</div>',
+        iconSize: [28, 28],
+        iconAnchor: [14, 14]
+      })
+    }).addTo(map);
+
+    clickStart.bindPopup('Start point — now click your destination').openPopup();
+    clickCount = 1;
+
+    document.getElementById('click-instructions').textContent = '📍 Start set — now click your destination';
+    document.getElementById('click-instructions').style.color = '#1F6B2E';
+    document.getElementById('reset-click-btn').style.display = 'block';
+
+  } else if (clickCount === 1) {
+    // Second click — set end point and route
+    if (clickEnd) map.removeLayer(clickEnd);
+
+    clickEnd = L.marker([lat, lng], {
+      icon: L.divIcon({
+        className: '',
+        html: '<div style="background:#CC0000; color:white; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; font-size:14px; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3);">E</div>',
+        iconSize: [28, 28],
+        iconAnchor: [14, 14]
+      })
+    }).addTo(map);
+
+    clickCount = 2;
+
+    document.getElementById('click-instructions').textContent = '🔄 Calculating safest route...';
+    document.getElementById('click-instructions').style.color = '#666';
+
+    // Route using clicked coordinates directly
+    routeFromCoordinates(
+      { lat: clickStart.getLatLng().lat, lng: clickStart.getLatLng().lng, name: 'Map Start' },
+      { lat: lat, lng: lng, name: 'Map End' }
+    );
+
+  } else {
+    // Third click — reset and start over
+    resetClickRoute();
+  }
+});
+
+function resetClickRoute() {
+  if (clickStart) { map.removeLayer(clickStart); clickStart = null; }
+  if (clickEnd)   { map.removeLayer(clickEnd);   clickEnd = null; }
+  clickCount = 0;
+  document.getElementById('click-instructions').textContent = '💡 Or click the map to set Start then End point';
+  document.getElementById('click-instructions').style.color = '#666';
+  document.getElementById('reset-click-btn').style.display = 'none';
+}
+
+// Routes using coordinate objects directly
+// Skips geocoding — goes straight to GraphHopper routing
+function routeFromCoordinates(startCoord, endCoord) {
+  clearRoutes();
+  document.getElementById('status').textContent = 'Routing from map points...';
+
+  var url = 'https://graphhopper.com/api/1/route?' +
+    'point=' + startCoord.lat + ',' + startCoord.lng +
+    '&point=' + endCoord.lat + ',' + endCoord.lng +
+    '&vehicle=car' +
+    '&locale=en' +
+    '&instructions=true' +
+    '&points_encoded=false' +
+    '&algorithm=alternative_route' +
+    '&alternative_route.max_paths=3' +
+    '&alternative_route.max_weight_factor=2.0' +
+    '&alternative_route.max_share_factor=0.8' +
+    '&key=' + GRAPHHOPPER_KEY;
+
+  fetch(url)
+    .then(function(response) { return response.json(); })
+    .then(function(data) {
+      if (data.message) throw new Error(data.message);
+
+      var paths = data.paths;
+      document.getElementById('status').textContent =
+        'Scoring ' + paths.length + ' route(s) against crash data...';
+
+      // Score each route
+      var scores = [];
+      for (var i = 0; i < paths.length; i++) {
+        scores.push({
+          index: i,
+          score: scoreRoute(paths[i]),
+          path:  paths[i]
+        });
+      }
+
+      // Find safest
+      var safest = scores[0];
+      for (var j = 1; j < scores.length; j++) {
+        if (scores[j].score < safest.score) safest = scores[j];
+      }
+
+      console.log('Click route scores:', scores.map(function(s) { return s.index + ':' + s.score; }));
+
+      drawRoutes(paths, safest.index, scores);
+      showDirections(safest.path);
+
+      var miles = (safest.path.distance / 1609.34).toFixed(1);
+      var mins  = Math.round(safest.path.time / 60000);
+      var altScores = scores
+        .filter(function(s) { return s.index !== safest.index; })
+        .map(function(s) { return s.score; })
+        .join(', ');
+
+      var liveNote = liveIncidentData && liveIncidentData.features.length > 0
+        ? '<br><small>⚠️ ' + liveIncidentData.features.length + ' live ODOT incident(s) factored into scoring</small>'
+        : '';
+
+      var summary = document.getElementById('score-summary');
+      summary.innerHTML =
+        '<b>Safest route selected</b><br>' +
+        miles + ' miles &bull; ' + mins + ' min<br>' +
+        'Total risk score: ' + safest.score +
+        (paths.length > 1 ? ' (vs ' + altScores + ' for alternatives)' : '') +
+        liveNote;
+      summary.style.display = 'block';
+
+      document.getElementById('status').textContent = 'Safest route highlighted in blue.';
+      document.getElementById('click-instructions').textContent = '✅ Route found — click map to start again';
+    })
+    .catch(function(err) {
+      console.error('Click routing error:', err);
+      document.getElementById('status').textContent = 'Error: ' + err.message;
+      document.getElementById('click-instructions').textContent = '💡 Or click the map to set Start then End point';
+    });
 }
     // ============================================
     // LOAD LIVE ODOT INCIDENTS
