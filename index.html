@@ -86,6 +86,7 @@
     <input id="end"   type="text" placeholder="e.g. Wunderland, Portland OR"/>
     <button onclick="getRoute()">Find Safest Route</button>
     <div id="status">Enter addresses above to begin.</div>
+    <div id="incident-refresh" style="font-size:10px; color:#999; margin-top:4px;"></div>
     <div id="score-summary"></div>
     <div id="directions"></div>
   </div>
@@ -249,7 +250,10 @@
     // ============================================
     function drawRoutes(allPaths, safestIndex, scores) {
       console.log('drawRoutes called — total paths:', allPaths.length, '— safest index:', safestIndex);
-
+    // Update the last refresh time in the panel
+    var now = new Date().toLocaleTimeString();
+    var refreshDiv = document.getElementById('incident-refresh');
+    if (refreshDiv) refreshDiv.textContent = 'Live incidents updated: ' + now;
       var allBounds = [];
       var i, coords, line;
 
