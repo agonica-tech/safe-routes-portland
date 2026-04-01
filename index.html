@@ -488,7 +488,7 @@ function scoreRoute(path) {
 
         // Simpler approach — just note if live incidents affected scoring
         var liveNote = liveIncidentData && liveIncidentData.features.length > 0
-          ? '<br><small>⚠️ ' + liveIncidentData.features.length + ' live ODOT incident(s) factored into scoring</small>'
+          ? '<br><small> ' + liveIncidentData.features.length + ' live ODOT incident(s) factored into scoring</small>'
           : '';
 
         summary.innerHTML =
@@ -543,10 +543,10 @@ console.log('liveIncidentData set with', liveIncidentData.features.length, 'feat
                p.attributes_startLatitude !== 0 &&
                p.attributes_startLongitude !== 0;
       });
-
+      liveIncidentData = fixedGeojson;
       console.log('Live ODOT incidents loaded:', validFeatures.length, 'of', data.features.length);
       // Save incident points for use in route scoring
-liveIncidentData = fixedGeojson;
+
       
 // Update refresh timestamp in panel
 var now = new Date().toLocaleTimeString();
