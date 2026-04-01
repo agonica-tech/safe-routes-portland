@@ -496,6 +496,10 @@ function loadLiveIncidents() {
       });
 
       console.log('Live ODOT incidents loaded:', validFeatures.length, 'of', data.features.length);
+// Update refresh timestamp in panel
+var now = new Date().toLocaleTimeString();
+var refreshDiv = document.getElementById('incident-refresh');
+if (refreshDiv) refreshDiv.textContent = 'Live incidents updated: ' + now;
 
       // Create a new GeoJSON collection using the lat/lng fields
       var fixedGeojson = {
