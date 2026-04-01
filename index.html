@@ -93,16 +93,16 @@
     <input id="start" type="text" placeholder="e.g. 1234 N Main St., Portland OR"/>
     <input id="end"   type="text" placeholder="e.g. Wunderland, Portland OR"/>
     <button onclick="getRoute()">Find Safest Route</button>
-    <button onclick="clearAll()" style="width:100%; padding:6px; margin-top:4px; background:#666666; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px;">
-Clear Route
-    </button>
-    <div id="click-instructions" style="font-size:11px; color:#666; margin-top:6px; padding:6px; background:#f5f5f5; border-radius:4px;">💡 Or click the map to set Start then End point
+    <div id="status">Enter addresses above to begin.</div>
+        <div id="click-instructions" style="font-size:11px; color:#666; margin-top:6px; padding:6px; background:#f5f5f5; border-radius:4px;">💡 Or click the map to set Start then End point
   </div>
     <button onclick="resetClickRoute()" id="reset-click-btn" style="width:100%; padding:5px; margin-top:4px; background:#888; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px; display:none;"> Reset Map Click Points
   </button>
-    <div id="status">Enter addresses above to begin.</div>
-    <div id="incident-refresh"></div>
-  <button id="crash-toggle-btn"
+        <div id="incident-refresh"></div>
+  <button onclick="clearAll()" style="width:100%; padding:6px; margin-top:4px; background:#666666; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px;">
+Clear Route
+    </button>
+    <button id="crash-toggle-btn"
   onclick="toggleCrashPoints()"
   style="width:100%; padding:6px; margin-top:6px; background:#888888; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px;">
   Show 2023 Injury/Fatal Crashes
