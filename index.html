@@ -42,6 +42,7 @@
     }
     #panel button:hover { background: #5555F2; }
     #status { margin-top: 8px; font-size: 12px; color: #666; }
+    #incident-refresh { font-size: 10px; color: #999; margin-top: 4px; }
     #score-summary {
       margin-top: 8px;
       font-size: 12px;
@@ -86,7 +87,7 @@
     <input id="end"   type="text" placeholder="e.g. Wunderland, Portland OR"/>
     <button onclick="getRoute()">Find Safest Route</button>
     <div id="status">Enter addresses above to begin.</div>
-    <div id="incident-refresh" style="font-size:10px; color:#999; margin-top:4px;"></div>
+    <div id="incident-refresh"></div>
     <div id="score-summary"></div>
     <div id="directions"></div>
   </div>
@@ -106,10 +107,10 @@
       <div class="legend-color" style="background:#0000cc; height:6px"></div> Safest Route
     </div>
     <div class="legend-item">
-      <div class="legend-color" style="background:#A927F5"></div> Alternative Routes (Click for details)
+      <div class="legend-color" style="background:#A927F5"></div> Alternative Routes
     </div>
     <div class="legend-item">
-  <div style="width:12px; height:12px; border-radius:50%; background:#FF6600; border:2px solid #CC3300; margin-right:8px"></div> Live Incidents (ODOT)
+      <div style="width:12px; height:12px; border-radius:50%; background:#FF6600; border:2px solid #CC3300; margin-right:8px"></div> Live ODOT Incidents
     </div>
   </div>
 
@@ -125,10 +126,7 @@
     // ============================================
     var GRAPHHOPPER_KEY = '616e1d33-e98d-490a-ae3e-2506c3d05e88';
     var GEOJSON_URL = 'https://services8.arcgis.com/tblHe99qQFMcNzpC/arcgis/rest/services/All_Streets_join_FeaturesToJSON/FeatureServer/0/query?where=1%3D1&outFields=*&f=geojson';
-    var ODOT_KEY = 'ba1f3d693d5144b194b402d841cafc62';
-    var liveIncidentLayer = null;
-    var liveIncidentData = null; // stores live incidents for route scoring
-    
+
     // ============================================
     // MAP SETUP
     // ============================================
@@ -151,10 +149,12 @@
     // ============================================
     // GLOBAL VARIABLES
     // ============================================
-    var crashData = null;
-    var routeLayers = [];
-    var startMarker = null;
-    var endMarker = null;
+    var crashData         = null;
+    var routeLayers       = [];
+    var startMarker       = null;
+    var endMarker         = null;
+    var liveIncidentLayer = null;
+    var liveIncidentData  = null; // stored for route scoring
 
     // ============================================
     // LOAD CRASH ROADS GEOJSON
@@ -215,64 +215,57 @@
     }
 
     // ============================================
-    // SCORE ROUTE AGAINST CRASH DATA
+    // SCORE ROUTE AGAINST CRASH DATA + LIVE INCIDENTS
+    // Historical CrashCost + 2000 per live incident
+    // within 0.03 miles of the route
     // ============================================
-   // ============================================
-// SCORE A ROUTE AGAINST CRASH DATA
-// Combines historical CrashCost data AND
-// live ODOT incidents for a total danger score
-// ============================================
-function scoreRoute(path) {
-  var totalScore = 0;
+    function scoreRoute(path) {
+      var totalScore = 0;
 
-  // Convert route to Turf LineString
-  var routeCoords = path.points.coordinates;
-  var routeLine = turf.lineString(routeCoords);
+      var routeCoords = path.points.coordinates;
+      var routeLine   = turf.lineString(routeCoords);
+      var buffer      = turf.buffer(routeLine, 0.03, { units: 'miles' });
 
-  // Create .3Mile buffer around route
-  var buffer = turf.buffer(routeLine, 0.03, { units: 'miles' });
+      // PART 1: Historical crash road scoring
+      if (crashData) {
+        crashData.features.forEach(function(feature) {
+          try {
+            if (turf.booleanIntersects(feature, buffer)) {
+              totalScore += (feature.properties.CrashCost || 0);
+            }
+          } catch(e) {}
+        });
+      }
 
-  // ---- PART 1: Historical crash road scoring ----
-  // Adds CrashCost for every high-risk road near the route
-  if (crashData) {
-    crashData.features.forEach(function(feature) {
-      try {
-        if (turf.booleanIntersects(feature, buffer)) {
-          totalScore += (feature.properties.CrashCost || 0);
-        }
-      } catch(e) {}
-    });
-  }
+      // PART 2: Live ODOT incident scoring — 2000 per incident
+      var incidentPenalty = 2000;
+      var incidentCount   = 0;
 
-  // ---- PART 2: Live ODOT incident scoring ----
-  // Adds 2000 penalty for every active incident near the route
-  var incidentPenalty = 2000;
-  var incidentCount = 0;
+      if (liveIncidentData) {
+        liveIncidentData.features.forEach(function(feature) {
+          try {
+            if (turf.booleanIntersects(feature, buffer)) {
+              totalScore += incidentPenalty;
+              incidentCount++;
+            }
+          } catch(e) {}
+        });
+      }
 
-  if (liveIncidentData) {
-    liveIncidentData.features.forEach(function(feature) {
-      try {
-        if (turf.booleanIntersects(feature, buffer)) {
-          totalScore += incidentPenalty;
-          incidentCount++;
-        }
-      } catch(e) {}
-    });
-  }
+      console.log('Route scored:', totalScore,
+        '(crashes: ' + (totalScore - incidentCount * incidentPenalty) + ',',
+        'live incidents: ' + incidentCount + ' x ' + incidentPenalty + ')');
 
-  // Log scoring details for debugging
-  console.log('Route scored:', totalScore,
-    '(crashes: ' + (totalScore - incidentCount * incidentPenalty) + ',',
-    'live incidents: ' + incidentCount + ' x ' + incidentPenalty + ')');
-
-  return totalScore;
-}
+      return totalScore;
+    }
 
     // ============================================
     // CLEAR ROUTES
     // ============================================
     function clearRoutes() {
-      routeLayers.forEach(function(layer) { map.removeLayer(layer); });
+      for (var i = 0; i < routeLayers.length; i++) {
+        map.removeLayer(routeLayers[i]);
+      }
       routeLayers = [];
       if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
       if (endMarker)   { map.removeLayer(endMarker);   endMarker = null; }
@@ -282,20 +275,17 @@ function scoreRoute(path) {
 
     // ============================================
     // DRAW ROUTES
-    // safestIndex = index of the safest path
+    // Alternatives first, safest last so it draws on top
     // ============================================
     function drawRoutes(allPaths, safestIndex, scores) {
       console.log('drawRoutes called — total paths:', allPaths.length, '— safest index:', safestIndex);
-    // Update the last refresh time in the panel
-    var now = new Date().toLocaleTimeString();
-    var refreshDiv = document.getElementById('incident-refresh');
-    if (refreshDiv) refreshDiv.textContent = 'Live incidents updated: ' + now;
+
       var allBounds = [];
       var i, coords, line;
 
-      // STEP A: Draw alternative routes first (so safest draws on top)
+      // STEP A: Draw alternative routes first
       for (i = 0; i < allPaths.length; i++) {
-        if (i === safestIndex) continue; // skip safest — draw it last
+        if (i === safestIndex) continue;
 
         coords = allPaths[i].points.coordinates.map(function(c) {
           return [c[1], c[0]];
@@ -309,27 +299,28 @@ function scoreRoute(path) {
           opacity: 0.75
         }).addTo(map);
 
+        (function(p, score) {
+          line.bindPopup(
+            '<b>Alternative Route</b><br>' +
+            'Risk score: ' + score + '<br>' +
+            (p.distance / 1609.34).toFixed(1) + ' miles &bull; ' +
+            Math.round(p.time / 60000) + ' min<br>' +
+            '<small>Click for turn-by-turn directions</small>'
+          );
+          line.on('click', function() {
+            showDirections(p);
+            document.getElementById('status').textContent = 'Showing directions for alternative route.';
+          });
+        })(allPaths[i], scores[i] ? scores[i].score : '');
 
-       (function(p, score) {
-  line.bindPopup(
-    '<b>Alternative Route</b><br>' +
-    'Crash risk score: ' + score + '<br>' +
-    (p.distance / 1609.34).toFixed(1) + ' miles &bull; ' + 
-    Math.round(p.time / 60000) + ' min<br>' +
-    '<small>Click route for details</small>'
-  );
-  line.on('click', function() {
-    showDirections(p);
-    document.getElementById('status').textContent = 'Showing directions for alternative route.';
-  });
-})(allPaths[i], scores[i] ? scores[i].score : '');
+        routeLayers.push(line); // ✅ track for cleanup
 
         for (var j = 0; j < coords.length; j++) {
           allBounds.push(coords[j]);
         }
       }
 
-      // STEP B: Draw safest route last so it appears on top
+      // STEP B: Draw safest route last — on top
       coords = allPaths[safestIndex].points.coordinates.map(function(c) {
         return [c[1], c[0]];
       });
@@ -343,20 +334,21 @@ function scoreRoute(path) {
       }).addTo(map);
 
       (function(p, score) {
-  line.bindPopup(
-    '<b>Safest Route</b><br>' +
-    'Crash risk score: ' + score + '<br>' +
-    (p.distance / 1609.34).toFixed(1) + ' miles &bull; ' +
-    Math.round(p.time / 60000) + ' min<br>' +
-    '<small>Click route for details</small>'
-  );
-  line.on('click', function() {
-    showDirections(p);
-    document.getElementById('status').textContent = 'Showing directions for safest route.';
-  });
-})(allPaths[safestIndex], scores[safestIndex] ? scores[safestIndex].score : '');
+        line.bindPopup(
+          '<b>Safest Route</b><br>' +
+          'Risk score: ' + score + '<br>' +
+          (p.distance / 1609.34).toFixed(1) + ' miles &bull; ' +
+          Math.round(p.time / 60000) + ' min<br>' +
+          '<small>Click for turn-by-turn directions</small>'
+        );
+        line.on('click', function() {
+          showDirections(p);
+          document.getElementById('status').textContent = 'Showing directions for safest route.';
+        });
+      })(allPaths[safestIndex], scores[safestIndex] ? scores[safestIndex].score : '');
+
       line.bringToFront();
-      routeLayers.push(line);
+      routeLayers.push(line); // ✅ track for cleanup
 
       for (var k = 0; k < coords.length; k++) {
         allBounds.push(coords[k]);
@@ -367,7 +359,7 @@ function scoreRoute(path) {
         map.fitBounds(L.latLngBounds(allBounds), { padding: [50, 50] });
       }
 
-      console.log('drawRoutes complete — layers added:', routeLayers.length);
+      console.log('drawRoutes complete — total layers:', routeLayers.length);
     }
 
     // ============================================
@@ -454,7 +446,7 @@ function scoreRoute(path) {
           });
         }
 
-        // Find safest
+        // Find safest — lowest score
         var safest = scores[0];
         for (var j = 1; j < scores.length; j++) {
           if (scores[j].score < safest.score) {
@@ -465,13 +457,13 @@ function scoreRoute(path) {
         console.log('Scores:', scores.map(function(s) { return s.index + ':' + s.score; }));
         console.log('Safest is index', safest.index, 'with score', safest.score);
 
-        // Draw routes
+        // Draw all routes
         drawRoutes(paths, safest.index, scores);
 
-        // Show directions
+        // Show directions for safest route
         showDirections(safest.path);
 
-        // Show score summary
+        // Build score summary
         var miles = (safest.path.distance / 1609.34).toFixed(1);
         var mins  = Math.round(safest.path.time / 60000);
         var altScores = scores
@@ -479,18 +471,11 @@ function scoreRoute(path) {
           .map(function(s) { return s.score; })
           .join(', ');
 
-        var summary = document.getElementById('score-summary');
-        // Count live incidents on safest route
-        var incidentPenalty = 2000;
-        var incidentCount = safest.score > 0
-          ? Math.round((safest.score % incidentPenalty) === safest.score % incidentPenalty ? 0 : 0)
-          : 0;
-
-        // Simpler approach — just note if live incidents affected scoring
         var liveNote = liveIncidentData && liveIncidentData.features.length > 0
-          ? '<br><small> ' + liveIncidentData.features.length + ' live ODOT incident(s) factored into scoring</small>'
+          ? '<br><small>⚠️ ' + liveIncidentData.features.length + ' live ODOT incident(s) factored into scoring</small>'
           : '';
 
+        var summary = document.getElementById('score-summary');
         summary.innerHTML =
           '<b>Safest route selected</b><br>' +
           miles + ' miles &bull; ' + mins + ' min<br>' +
@@ -508,108 +493,109 @@ function scoreRoute(path) {
     }
 
     // ============================================
-// ============================================
-// LOAD LIVE ODOT INCIDENTS
-// ============================================
-function loadLiveIncidents() {
+    // LOAD LIVE ODOT INCIDENTS
+    // Public ArcGIS layer — no API key needed
+    // Refreshes every 5 minutes automatically
+    // ============================================
+    function loadLiveIncidents() {
 
-  var odotUrl = 'https://services.arcgis.com/uUvqNMGPm7axC2dD/arcgis/rest/services/ODOT_Traffic_Incidents/FeatureServer/0/query?' +
-    'where=1%3D1' +
-    '&outFields=attributes_odotCategoryDescript,attributes_comments,attributes_odotSeverityDescript,attributes_eventSubTypeName,attributes_route,attributes_beginMarker,attributes_lastUpdated,attributes_startLatitude,attributes_startLongitude,attributes_locationName' +
-    '&f=geojson';
+      var odotUrl = 'https://services.arcgis.com/uUvqNMGPm7axC2dD/arcgis/rest/services/ODOT_Traffic_Incidents/FeatureServer/0/query?' +
+        'where=1%3D1' +
+        '&outFields=attributes_odotCategoryDescript,attributes_comments,attributes_odotSeverityDescript,attributes_eventSubTypeName,attributes_route,attributes_beginMarker,attributes_lastUpdated,attributes_startLatitude,attributes_startLongitude,attributes_locationName' +
+        '&f=geojson';
 
-  fetch(odotUrl)
-    .then(function(response) {
-      if (!response.ok) throw new Error('ODOT layer error: ' + response.status);
-      return response.json();
-    })
-    .then(function(data) {
-
-      // Remove previous layer
-      if (liveIncidentLayer) {
-        map.removeLayer(liveIncidentLayer);
-        liveIncidentLayer = null;
-      }
-
-      // Filter to only features with valid coordinates
-      var validFeatures = data.features.filter(function(f) {
-        var p = f.properties;
-        return p.attributes_startLatitude &&
-               p.attributes_startLongitude &&
-               p.attributes_startLatitude !== 0 &&
-               p.attributes_startLongitude !== 0;
-      });
-
-      // Build GeoJSON with correct geometry from lat/lng fields
-      var fixedGeojson = {
-        type: 'FeatureCollection',
-        features: validFeatures.map(function(f) {
-          var p = f.properties;
-          return {
-            type: 'Feature',
-            geometry: {
-              type: 'Point',
-              coordinates: [
-                p.attributes_startLongitude,
-                p.attributes_startLatitude
-              ]
-            },
-            properties: p
-          };
+      fetch(odotUrl)
+        .then(function(response) {
+          if (!response.ok) throw new Error('ODOT layer error: ' + response.status);
+          return response.json();
         })
-      };
+        .then(function(data) {
 
-      // ✅ Save to global variable for route scoring
-      // Must be here AFTER fixedGeojson is created above
-      liveIncidentData = fixedGeojson;
+          // Remove previous incident layer
+          if (liveIncidentLayer) {
+            map.removeLayer(liveIncidentLayer);
+            liveIncidentLayer = null;
+          }
 
-      console.log('Live ODOT incidents loaded:', validFeatures.length, 'of', data.features.length);
-      console.log('liveIncidentData set with', liveIncidentData.features.length, 'features');
-
-      // Update refresh timestamp
-      var now = new Date().toLocaleTimeString();
-      var refreshDiv = document.getElementById('incident-refresh');
-      if (refreshDiv) refreshDiv.textContent = 'Live incidents updated: ' + now;
-
-      // Add to map as orange circle markers
-      liveIncidentLayer = L.geoJSON(fixedGeojson, {
-        pointToLayer: function(feature, latlng) {
-          return L.circleMarker(latlng, {
-            radius:      9,
-            fillColor:   '#FF6600',
-            color:       '#CC3300',
-            weight:      2,
-            opacity:     1,
-            fillOpacity: 0.85
+          // Filter to features with valid coordinates
+          var validFeatures = data.features.filter(function(f) {
+            var p = f.properties;
+            return p.attributes_startLatitude &&
+                   p.attributes_startLongitude &&
+                   p.attributes_startLatitude !== 0 &&
+                   p.attributes_startLongitude !== 0;
           });
-        },
-        onEachFeature: function(feature, layer) {
-          var p = feature.properties;
-          var updated = p.attributes_lastUpdated
-            ? new Date(p.attributes_lastUpdated).toLocaleString()
-            : 'Unknown';
-          layer.bindPopup(
-            '<b>🚨 ' + (p.attributes_odotCategoryDescript || 'Active Incident') + '</b><br>' +
-            '<b>Type:</b> ' + (p.attributes_eventSubTypeName || 'Unknown') + '<br>' +
-            '<b>Route:</b> ' + (p.attributes_route || 'Unknown') + '<br>' +
-            '<b>Location:</b> ' + (p.attributes_beginMarker || p.attributes_locationName || 'Unknown') + '<br>' +
-            '<b>Severity:</b> ' + (p.attributes_odotSeverityDescript || 'Unknown') + '<br>' +
-            '<b>Details:</b> ' + (p.attributes_comments || 'No details available') + '<br>' +
-            '<small>Updated: ' + updated + '</small>'
-          );
-        }
-      }).addTo(map);
 
-    })
-    .catch(function(err) {
-      console.warn('Live incidents failed:', err.message);
-    });
-}
+          // Build GeoJSON using lat/lng from properties
+          // (geometry field is null in this service)
+          var fixedGeojson = {
+            type: 'FeatureCollection',
+            features: validFeatures.map(function(f) {
+              var p = f.properties;
+              return {
+                type: 'Feature',
+                geometry: {
+                  type: 'Point',
+                  coordinates: [
+                    p.attributes_startLongitude,
+                    p.attributes_startLatitude
+                  ]
+                },
+                properties: p
+              };
+            })
+          };
 
-// Load on startup then refresh every 5 minutes
-loadLiveIncidents();
-setInterval(loadLiveIncidents, 300000);
-    
+          // Save to global for route scoring
+          liveIncidentData = fixedGeojson;
+
+          console.log('Live ODOT incidents loaded:', validFeatures.length, 'of', data.features.length);
+          console.log('liveIncidentData set with', liveIncidentData.features.length, 'features');
+
+          // Update refresh timestamp in panel
+          var now = new Date().toLocaleTimeString();
+          var refreshDiv = document.getElementById('incident-refresh');
+          if (refreshDiv) refreshDiv.textContent = 'Live incidents updated: ' + now;
+
+          // Add orange circle markers to map
+          liveIncidentLayer = L.geoJSON(fixedGeojson, {
+            pointToLayer: function(feature, latlng) {
+              return L.circleMarker(latlng, {
+                radius:      9,
+                fillColor:   '#FF6600',
+                color:       '#CC3300',
+                weight:      2,
+                opacity:     1,
+                fillOpacity: 0.85
+              });
+            },
+            onEachFeature: function(feature, layer) {
+              var p = feature.properties;
+              var updated = p.attributes_lastUpdated
+                ? new Date(p.attributes_lastUpdated).toLocaleString()
+                : 'Unknown';
+              layer.bindPopup(
+                '<b>(p.attributes_odotCategoryDescript || 'Active Incident') + '</b><br>' +
+                '<b>Type:</b> ' + (p.attributes_eventSubTypeName || 'Unknown') + '<br>' +
+                '<b>Route:</b> ' + (p.attributes_route || 'Unknown') + '<br>' +
+                '<b>Location:</b> ' + (p.attributes_beginMarker || p.attributes_locationName || 'Unknown') + '<br>' +
+                '<b>Severity:</b> ' + (p.attributes_odotSeverityDescript || 'Unknown') + '<br>' +
+                '<b>Details:</b> ' + (p.attributes_comments || 'No details available') + '<br>' +
+                '<small>Updated: ' + updated + '</small>'
+              );
+            }
+          }).addTo(map);
+
+        })
+        .catch(function(err) {
+          console.warn('Live incidents failed:', err.message);
+        });
+    }
+
+    // Load immediately then refresh every 5 minutes
+    loadLiveIncidents();
+    setInterval(loadLiveIncidents, 300000);
+
   </script>
 </body>
 </html>
