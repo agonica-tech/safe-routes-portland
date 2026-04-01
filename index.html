@@ -462,95 +462,97 @@
 // Refreshes every 2 minutes automatically
 // ============================================
 function loadLiveIncidents() {
-  // Route through CORS proxy to bypass browser restrictions
-var proxyUrl = 'https://corsproxy.io/?';
-var targetUrl = 'https://api.tripcheck.com/api/incident';
 
-fetch(proxyUrl + encodeURIComponent(targetUrl), {
-  method: 'GET',
-  headers: {
-    'Ocp-Apim-Subscription-Key': ODOT_KEY,
-    'Accept': 'application/json'
-  }
-})
-  .then(function(response) {
-    if (!response.ok) {
-      throw new Error('ODOT API error: ' + response.status);
-    }
-    return response.json();
-  })
-  .then(function(incidents) {
+  var odotUrl = 'https://services.arcgis.com/uUvqNMGPm7axC2dD/arcgis/rest/services/ODOT_Traffic_Incidents/FeatureServer/0/query?' +
+    'where=1%3D1' +
+    '&outFields=attributes_odotCategoryDescript,attributes_comments,attributes_odotSeverityDescript,attributes_eventSubTypeName,attributes_route,attributes_beginMarker,attributes_lastUpdated,attributes_startLatitude,attributes_startLongitude,attributes_locationName' +
+    '&f=geojson';
 
-    // Remove previous incident layer if one exists
-    if (liveIncidentLayer) {
-      map.removeLayer(liveIncidentLayer);
-      liveIncidentLayer = null;
-    }
+  fetch(odotUrl)
+    .then(function(response) {
+      if (!response.ok) throw new Error('ODOT layer error: ' + response.status);
+      return response.json();
+    })
+    .then(function(data) {
 
-    // Filter to only incidents with valid coordinates
-    var validIncidents = incidents.filter(function(i) {
-      return i.Longitude && i.Latitude;
-    });
-
-    console.log('Live incidents loaded:', validIncidents.length);
-
-    // Convert to GeoJSON format for Leaflet
-    var geojson = {
-      type: 'FeatureCollection',
-      features: validIncidents.map(function(i) {
-        return {
-          type: 'Feature',
-          geometry: {
-            type: 'Point',
-            coordinates: [i.Longitude, i.Latitude]
-          },
-          properties: {
-            description: i.Description || 'Active Incident',
-            type:        i.IncidentType || 'Unknown',
-            severity:    i.Severity || 'Unknown',
-            location:    i.Location || '',
-            updated:     i.LastUpdated || ''
-          }
-        };
-      })
-    };
-
-    // Add to map as orange circle markers
-    liveIncidentLayer = L.geoJSON(geojson, {
-      pointToLayer: function(feature, latlng) {
-        return L.circleMarker(latlng, {
-          radius:      9,
-          fillColor:   '#FF6600',
-          color:       '#CC3300',
-          weight:      2,
-          opacity:     1,
-          fillOpacity: 0.85
-        });
-      },
-      onEachFeature: function(feature, layer) {
-        layer.bindPopup(
-          '<b>🚨 Active Incident</b><br>' +
-          '<b>' + feature.properties.description + '</b><br>' +
-          'Location: ' + feature.properties.location + '<br>' +
-          'Type: ' + feature.properties.type + '<br>' +
-          'Severity: ' + feature.properties.severity + '<br>' +
-          '<small>Updated: ' + feature.properties.updated + '</small>'
-        );
+      // Remove previous layer
+      if (liveIncidentLayer) {
+        map.removeLayer(liveIncidentLayer);
+        liveIncidentLayer = null;
       }
-    }).addTo(map);
 
-  })
-  .catch(function(err) {
-    console.warn('Live incidents failed to load:', err.message);
-  });
+      // Build valid points from startLatitude/startLongitude
+      // since geometry may be null on some features
+      var validFeatures = data.features.filter(function(f) {
+        var p = f.properties;
+        return p.attributes_startLatitude &&
+               p.attributes_startLongitude &&
+               p.attributes_startLatitude !== 0 &&
+               p.attributes_startLongitude !== 0;
+      });
+
+      console.log('Live ODOT incidents loaded:', validFeatures.length, 'of', data.features.length);
+
+      // Create a new GeoJSON collection using the lat/lng fields
+      var fixedGeojson = {
+        type: 'FeatureCollection',
+        features: validFeatures.map(function(f) {
+          var p = f.properties;
+          return {
+            type: 'Feature',
+            geometry: {
+              type: 'Point',
+              coordinates: [
+                p.attributes_startLongitude,
+                p.attributes_startLatitude
+              ]
+            },
+            properties: p
+          };
+        })
+      };
+
+      // Add to map as orange circle markers
+      liveIncidentLayer = L.geoJSON(fixedGeojson, {
+        pointToLayer: function(feature, latlng) {
+          return L.circleMarker(latlng, {
+            radius:      9,
+            fillColor:   '#FF6600',
+            color:       '#CC3300',
+            weight:      2,
+            opacity:     1,
+            fillOpacity: 0.85
+          });
+        },
+        onEachFeature: function(feature, layer) {
+          var p = feature.properties;
+
+          // Format the lastUpdated timestamp
+          var updated = p.attributes_lastUpdated
+            ? new Date(p.attributes_lastUpdated).toLocaleString()
+            : 'Unknown';
+
+          layer.bindPopup(
+            '<b>🚨 ' + (p.attributes_odotCategoryDescript || 'Active Incident') + '</b><br>' +
+            '<b>Type:</b> ' + (p.attributes_eventSubTypeName || 'Unknown') + '<br>' +
+            '<b>Route:</b> ' + (p.attributes_route || 'Unknown') + '<br>' +
+            '<b>Location:</b> ' + (p.attributes_beginMarker || p.attributes_locationName || 'Unknown') + '<br>' +
+            '<b>Severity:</b> ' + (p.attributes_odotSeverityDescript || 'Unknown') + '<br>' +
+            '<b>Details:</b> ' + (p.attributes_comments || 'No details available') + '<br>' +
+            '<small>Updated: ' + updated + '</small>'
+          );
+        }
+      }).addTo(map);
+
+    })
+    .catch(function(err) {
+      console.warn('Live incidents failed:', err.message);
+    });
 }
 
-// Load incidents immediately when app starts
+// Load on startup then refresh every 5 minutes
 loadLiveIncidents();
-
-// Auto-refresh every 2 minutes (120000 milliseconds)
-// matching ODOT TripCheck update rate
-setInterval(loadLiveIncidents, 120000);
+setInterval(loadLiveIncidents, 300000);
     
   </script>
 </body>
