@@ -229,7 +229,7 @@ function scoreRoute(path) {
   var routeCoords = path.points.coordinates;
   var routeLine = turf.lineString(routeCoords);
 
-  // Create 50 meter buffer around route
+  // Create .3Mile buffer around route
   var buffer = turf.buffer(routeLine, 0.03, { units: 'miles' });
 
   // ---- PART 1: Historical crash road scoring ----
