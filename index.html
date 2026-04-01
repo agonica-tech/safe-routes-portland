@@ -508,14 +508,11 @@ function scoreRoute(path) {
     }
 
     // ============================================
+// ============================================
 // LOAD LIVE ODOT INCIDENTS
-// Fetches active incidents from TripCheck API
-// and displays them as orange dots on the map
-// Refreshes every 2 minutes automatically
 // ============================================
 function loadLiveIncidents() {
-liveIncidentData = fixedGeojson;
-console.log('liveIncidentData set with', liveIncidentData.features.length, 'features');
+
   var odotUrl = 'https://services.arcgis.com/uUvqNMGPm7axC2dD/arcgis/rest/services/ODOT_Traffic_Incidents/FeatureServer/0/query?' +
     'where=1%3D1' +
     '&outFields=attributes_odotCategoryDescript,attributes_comments,attributes_odotSeverityDescript,attributes_eventSubTypeName,attributes_route,attributes_beginMarker,attributes_lastUpdated,attributes_startLatitude,attributes_startLongitude,attributes_locationName' +
@@ -534,8 +531,7 @@ console.log('liveIncidentData set with', liveIncidentData.features.length, 'feat
         liveIncidentLayer = null;
       }
 
-      // Build valid points from startLatitude/startLongitude
-      // since geometry may be null on some features
+      // Filter to only features with valid coordinates
       var validFeatures = data.features.filter(function(f) {
         var p = f.properties;
         return p.attributes_startLatitude &&
@@ -543,17 +539,8 @@ console.log('liveIncidentData set with', liveIncidentData.features.length, 'feat
                p.attributes_startLatitude !== 0 &&
                p.attributes_startLongitude !== 0;
       });
-      liveIncidentData = fixedGeojson;
-      console.log('Live ODOT incidents loaded:', validFeatures.length, 'of', data.features.length);
-      // Save incident points for use in route scoring
 
-      
-// Update refresh timestamp in panel
-var now = new Date().toLocaleTimeString();
-var refreshDiv = document.getElementById('incident-refresh');
-if (refreshDiv) refreshDiv.textContent = 'Live incidents updated: ' + now;
-
-      // Create a new GeoJSON collection using the lat/lng fields
+      // Build GeoJSON with correct geometry from lat/lng fields
       var fixedGeojson = {
         type: 'FeatureCollection',
         features: validFeatures.map(function(f) {
@@ -572,6 +559,18 @@ if (refreshDiv) refreshDiv.textContent = 'Live incidents updated: ' + now;
         })
       };
 
+      // ✅ Save to global variable for route scoring
+      // Must be here AFTER fixedGeojson is created above
+      liveIncidentData = fixedGeojson;
+
+      console.log('Live ODOT incidents loaded:', validFeatures.length, 'of', data.features.length);
+      console.log('liveIncidentData set with', liveIncidentData.features.length, 'features');
+
+      // Update refresh timestamp
+      var now = new Date().toLocaleTimeString();
+      var refreshDiv = document.getElementById('incident-refresh');
+      if (refreshDiv) refreshDiv.textContent = 'Live incidents updated: ' + now;
+
       // Add to map as orange circle markers
       liveIncidentLayer = L.geoJSON(fixedGeojson, {
         pointToLayer: function(feature, latlng) {
@@ -586,12 +585,9 @@ if (refreshDiv) refreshDiv.textContent = 'Live incidents updated: ' + now;
         },
         onEachFeature: function(feature, layer) {
           var p = feature.properties;
-
-          // Format the lastUpdated timestamp
           var updated = p.attributes_lastUpdated
             ? new Date(p.attributes_lastUpdated).toLocaleString()
             : 'Unknown';
-
           layer.bindPopup(
             '<b>🚨 ' + (p.attributes_odotCategoryDescript || 'Active Incident') + '</b><br>' +
             '<b>Type:</b> ' + (p.attributes_eventSubTypeName || 'Unknown') + '<br>' +
