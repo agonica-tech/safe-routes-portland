@@ -230,7 +230,7 @@ function scoreRoute(path) {
   var routeLine = turf.lineString(routeCoords);
 
   // Create 50 meter buffer around route
-  var buffer = turf.buffer(routeLine, 5, { units: 'kilometers' });
+  var buffer = turf.buffer(routeLine, 0.05, { units: 'kilometers' });
 
   // ---- PART 1: Historical crash road scoring ----
   // Adds CrashCost for every high-risk road near the route
@@ -514,7 +514,8 @@ function scoreRoute(path) {
 // Refreshes every 2 minutes automatically
 // ============================================
 function loadLiveIncidents() {
-
+liveIncidentData = fixedGeojson;
+console.log('liveIncidentData set with', liveIncidentData.features.length, 'features');
   var odotUrl = 'https://services.arcgis.com/uUvqNMGPm7axC2dD/arcgis/rest/services/ODOT_Traffic_Incidents/FeatureServer/0/query?' +
     'where=1%3D1' +
     '&outFields=attributes_odotCategoryDescript,attributes_comments,attributes_odotSeverityDescript,attributes_eventSubTypeName,attributes_route,attributes_beginMarker,attributes_lastUpdated,attributes_startLatitude,attributes_startLongitude,attributes_locationName' +
