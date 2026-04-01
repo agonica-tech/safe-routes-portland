@@ -44,6 +44,12 @@
     #panel button:hover { background: #5555F2; }
     #status { margin-top: 8px; font-size: 12px; color: #666; }
     #incident-refresh { font-size: 10px; color: #999; margin-top: 4px; }
+    <button 
+    id="crash-toggle-btn" 
+    onclick="toggleCrashPoints()" 
+    style="width:100%; padding:6px; margin-top:6px; background:#888888; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px;">
+    Show 2023 Injury/Fatal Crashes
+    </button>
     #score-summary {
       margin-top: 8px;
       font-size: 12px;
@@ -113,6 +119,12 @@
     <div class="legend-item">
       <div style="width:12px; height:12px; border-radius:50%; background:#FF6600; border:2px solid #CC3300; margin-right:8px"></div> Live ODOT Incidents
     </div>
+  <div class="legend-item" id="crash-points-legend" style="display:none">
+    <div style="width:10px; height:10px; border-radius:50%; background:#CC0000; border:2px solid #880000; margin-right:8px"></div> Fatal Crash
+  </div>
+    <div class="legend-item" id="crash-points-legend2" style="display:none">
+  <div style="width:10px; height:10px; border-radius:50%; background:#FF6600; border:2px solid #CC3300; margin-right:8px"></div> Injury Crash
+  </div>
   </div>
 
   <div id="map"></div>
@@ -156,6 +168,8 @@
     var endMarker         = null;
     var liveIncidentLayer = null;
     var liveIncidentData  = null; // stored for route scoring
+    var crashPointsLayer   = null;
+    var crashPointsVisible = false;
 
     // ============================================
     // LOAD CRASH ROADS GEOJSON
@@ -493,6 +507,87 @@
       });
     }
 
+    // ============================================
+// CRASH POINTS LAYER — 2023 Injury and Fatal
+// Filtered to CRASH_SVRTY_CD IN (2,4) only
+// Off by default — toggled by button in panel
+// ============================================
+var CRASH_POINTS_URL =
+  'https://services8.arcgis.com/tblHe99qQFMcNzpC/ArcGIS/rest/services/Crashes_2023_Final/FeatureServer/6/query?' +
+  'where=CRASH_SVRTY_CD+IN+(2,4)' +
+  '&outFields=CRASH_SVRTY_CD,ALCHL_INVLV_FLG' +
+  '&f=geojson';
+
+function getCrashPointColor(severityCode) {
+  if (severityCode === 2) return '#CC0000'; // Fatal — dark red
+  if (severityCode === 4) return '#FF6600'; // Injury — orange
+  return '#999999';
+}
+
+function loadCrashPoints() {
+  document.getElementById('crash-toggle-btn').textContent = 'Loading crashes...';
+
+  fetch(CRASH_POINTS_URL)
+    .then(function(response) {
+      if (!response.ok) throw new Error('Crash points error: ' + response.status);
+      return response.json();
+    })
+    .then(function(data) {
+      console.log('Crash points loaded:', data.features.length);
+
+      crashPointsLayer = L.geoJSON(data, {
+        pointToLayer: function(feature, latlng) {
+          var severity = feature.properties.CRASH_SVRTY_CD;
+          return L.circleMarker(latlng, {
+            radius:      6,
+            fillColor:   getCrashPointColor(severity),
+            color:       '#000000',
+            weight:      1,
+            opacity:     1,
+            fillOpacity: 0.85
+          });
+        },
+        onEachFeature: function(feature, layer) {
+          var p = feature.properties;
+          var severityText = p.CRASH_SVRTY_CD === 2 ? 'Fatal' :
+                             p.CRASH_SVRTY_CD === 4 ? 'Non-Fatal Injury' : 'Unknown';
+          var alcoholText  = p.ALCHL_INVLV_FLG === 1 ? 'Yes' : 'No';
+          layer.bindPopup(
+            '<b>2023 Crash</b><br>' +
+            '<b>Severity:</b> ' + severityText + '<br>' +
+            '<b>Alcohol Involved:</b> ' + alcoholText
+          );
+        }
+      }).addTo(map);
+
+      crashPointsVisible = true;
+      document.getElementById('crash-toggle-btn').textContent = 'Hide 2023 Injury/Fatal Crashes';
+      document.getElementById('crash-toggle-btn').style.background = '#CC0000';
+      document.getElementById('crash-points-legend').style.display = 'flex';
+      document.getElementById('crash-points-legend2').style.display = 'flex';
+    })
+    .catch(function(err) {
+      console.warn('Crash points failed:', err.message);
+      document.getElementById('crash-toggle-btn').textContent = 'Show 2023 Injury/Fatal Crashes';
+      document.getElementById('crash-toggle-btn').style.background = '#888888';
+    });
+}
+
+function toggleCrashPoints() {
+  if (crashPointsVisible) {
+    if (crashPointsLayer) {
+      map.removeLayer(crashPointsLayer);
+      crashPointsLayer = null;
+    }
+    crashPointsVisible = false;
+    document.getElementById('crash-toggle-btn').textContent = 'Show 2023 Injury/Fatal Crashes';
+    document.getElementById('crash-toggle-btn').style.background = '#888888';
+    document.getElementById('crash-points-legend').style.display = 'none';
+    document.getElementById('crash-points-legend2').style.display = 'none';
+  } else {
+    loadCrashPoints();
+  }
+}
     // ============================================
     // LOAD LIVE ODOT INCIDENTS
     // Public ArcGIS layer — no API key needed
