@@ -462,13 +462,17 @@
 // Refreshes every 2 minutes automatically
 // ============================================
 function loadLiveIncidents() {
-  fetch('https://api.tripcheck.com/api/incident', {
-    method: 'GET',
-    headers: {
-      'Ocp-Apim-Subscription-Key': ODOT_KEY,
-      'Accept': 'application/json'
-    }
-  })
+  // Route through CORS proxy to bypass browser restrictions
+var proxyUrl = 'https://corsproxy.io/?';
+var targetUrl = 'https://api.tripcheck.com/api/incident';
+
+fetch(proxyUrl + encodeURIComponent(targetUrl), {
+  method: 'GET',
+  headers: {
+    'Ocp-Apim-Subscription-Key': ODOT_KEY,
+    'Accept': 'application/json'
+  }
+})
   .then(function(response) {
     if (!response.ok) {
       throw new Error('ODOT API error: ' + response.status);
