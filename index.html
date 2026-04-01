@@ -575,7 +575,7 @@
                 ? new Date(p.attributes_lastUpdated).toLocaleString()
                 : 'Unknown';
               layer.bindPopup(
-                '<b>(p.attributes_odotCategoryDescript || 'Active Incident') + '</b><br>' +
+                '<b>🚨 ' + (p.attributes_odotCategoryDescript || 'Active Incident') + '</b><br>' +
                 '<b>Type:</b> ' + (p.attributes_eventSubTypeName || 'Unknown') + '<br>' +
                 '<b>Route:</b> ' + (p.attributes_route || 'Unknown') + '<br>' +
                 '<b>Location:</b> ' + (p.attributes_beginMarker || p.attributes_locationName || 'Unknown') + '<br>' +
