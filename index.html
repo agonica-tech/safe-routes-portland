@@ -232,14 +232,14 @@
       });
 
     // ============================================
-    // GEOCODE ADDRESS
+    // GEOCODE ADDRESS — returns up to 3 candidates
     // ============================================
     function geocodeAddress(address) {
       var portlandBbox = '-123.2,45.2,-121.8,45.9';
       var url = 'https://graphhopper.com/api/1/geocode?' +
         'q=' + encodeURIComponent(address) +
         '&locale=en' +
-        '&limit=1' +
+        '&limit=3' +
         '&bbox=' + portlandBbox +
         '&key=' + GRAPHHOPPER_KEY;
 
@@ -249,12 +249,43 @@
           if (!data.hits || data.hits.length === 0) {
             throw new Error('Address not found: ' + address);
           }
-          return {
-            lat: data.hits[0].point.lat,
-            lng: data.hits[0].point.lng,
-            name: data.hits[0].name
-          };
+          return data.hits.map(function(h) {
+            return {
+              lat:  h.point.lat,
+              lng:  h.point.lng,
+              name: [h.name, h.street, h.city, h.state]
+                      .filter(Boolean).join(', ')
+            };
+          });
         });
+    }
+
+    // ============================================
+    // CONFIRM ADDRESS — shows "Did you mean?" buttons
+    // if multiple hits; resolves immediately if only one
+    // ============================================
+    function confirmAddress(hits, label) {
+      return new Promise(function(resolve) {
+        if (hits.length === 1) { resolve(hits[0]); return; }
+
+        var statusDiv = document.getElementById('status');
+        var html = '<b>' + label + ':</b> Did you mean?<br>';
+        hits.forEach(function(hit, i) {
+          html += '<button onclick="window._pickAddress(' + i + ')" ' +
+            'style="width:100%;text-align:left;padding:5px 7px;margin:3px 0;' +
+            'background:#f0f4ff;color:#1F4E79;border:1px solid #b0c4f0;' +
+            'border-radius:4px;cursor:pointer;font-size:11px;">' +
+            hit.name + '</button>';
+        });
+        statusDiv.innerHTML = html;
+
+        window._pickAddress = function(i) {
+          // Remove the buttons before continuing
+          statusDiv.innerHTML = 'Routing\u2026';
+          delete window._pickAddress;
+          resolve(hits[i]);
+        };
+      });
     }
 
     // ============================================
@@ -454,56 +485,67 @@
       }
 
       clearRoutes();
-      document.getElementById('status').textContent = 'Looking up addresses...';
+      document.getElementById('status').textContent = 'Looking up start address...';
 
-      Promise.all([
-        geocodeAddress(start),
-        geocodeAddress(end)
-      ])
-      .then(function(results) {
-        var startCoord = results[0];
-        var endCoord   = results[1];
+      var startCoord, endCoord;
 
-        document.getElementById('status').textContent = 'Routing...';
+      geocodeAddress(start)
+        .then(function(hits) {
+          return confirmAddress(hits, 'Start');
+        })
+        .then(function(coord) {
+          startCoord = coord;
+          document.getElementById('status').textContent = 'Looking up end address...';
+          return geocodeAddress(end);
+        })
+        .then(function(hits) {
+          return confirmAddress(hits, 'End');
+        })
+        .then(function(coord) {
+          endCoord = coord;
+          document.getElementById('status').textContent = 'Routing...';
 
-        startMarker = L.marker([startCoord.lat, startCoord.lng])
-          .bindPopup('Start: ' + startCoord.name).addTo(map);
-        endMarker = L.marker([endCoord.lat, endCoord.lng])
-          .bindPopup('End: ' + endCoord.name).addTo(map);
+          startMarker = L.marker([startCoord.lat, startCoord.lng])
+            .bindPopup('Start: ' + startCoord.name).addTo(map);
+          endMarker = L.marker([endCoord.lat, endCoord.lng])
+            .bindPopup('End: ' + endCoord.name).addTo(map);
 
-        var url = 'https://graphhopper.com/api/1/route?' +
-          'point=' + startCoord.lat + ',' + startCoord.lng +
-          '&point=' + endCoord.lat + ',' + endCoord.lng +
-          '&vehicle=car&locale=en&instructions=true&points_encoded=false' +
-          '&algorithm=alternative_route&alternative_route.max_paths=3' +
-          '&alternative_route.max_weight_factor=2.0&alternative_route.max_share_factor=0.8' +
-          '&key=' + GRAPHHOPPER_KEY;
+          var url = 'https://graphhopper.com/api/1/route?' +
+            'point=' + startCoord.lat + ',' + startCoord.lng +
+            '&point=' + endCoord.lat + ',' + endCoord.lng +
+            '&vehicle=car&locale=en&instructions=true&points_encoded=false' +
+            '&algorithm=alternative_route&alternative_route.max_paths=3' +
+            '&alternative_route.max_weight_factor=2.0&alternative_route.max_share_factor=0.8' +
+            '&key=' + GRAPHHOPPER_KEY;
 
-        return fetch(url).then(function(r) { return r.json(); });
-      })
-      .then(function(data) {
-        if (data.message) throw new Error(data.message);
+          return fetch(url).then(function(r) { return r.json(); });
+        })
+        .then(function(data) {
+          if (data.message) throw new Error(data.message);
 
-        var paths  = data.paths;
-        var scores = paths.map(function(p, i) {
-          return { index: i, score: scoreRoute(p), path: p };
+          var paths  = data.paths;
+          var scores = paths.map(function(p, i) {
+            return { index: i, score: scoreRoute(p), path: p };
+          });
+          var safest = scores.reduce(function(best, s) {
+            return s.score < best.score ? s : best;
+          });
+
+          console.log('Scores:', scores.map(function(s) { return s.index + ':' + s.score; }));
+
+          drawRoutes(paths, safest.index, scores);
+          showDirections(safest.path);
+          buildScoreSummary(safest, scores, paths);
+
+          document.getElementById('status').textContent = 'Safest route highlighted in blue.';
+        })
+        .catch(function(err) {
+          console.error('Routing error:', err);
+          var msg = err.message.indexOf('Address not found') !== -1
+            ? '⚠️ ' + err.message + '. Try adding more detail, or click the map to set points instead.'
+            : 'Error: ' + err.message;
+          document.getElementById('status').textContent = msg;
         });
-        var safest = scores.reduce(function(best, s) {
-          return s.score < best.score ? s : best;
-        });
-
-        console.log('Scores:', scores.map(function(s) { return s.index + ':' + s.score; }));
-
-        drawRoutes(paths, safest.index, scores);
-        showDirections(safest.path);
-        buildScoreSummary(safest, scores, paths);
-
-        document.getElementById('status').textContent = 'Safest route highlighted in blue.';
-      })
-      .catch(function(err) {
-        console.error('Routing error:', err);
-        document.getElementById('status').textContent = 'Error: ' + err.message;
-      });
     }
 
     // ============================================
