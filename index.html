@@ -93,7 +93,7 @@
     <button onclick="getRoute()">Find Safest Route</button>
 
     <!-- Status and click instructions combined -->
-    <div id="status">Enter addresses to route. Or click on the map to set Start and End points for your trip.</div>
+    <div id="status">Enter addresses to route. Or click on the map to set your Start and End points for your trip.</div>
 
     <!-- Reset click points — hidden until first click -->
     <button onclick="resetClickRoute()" id="reset-click-btn"
@@ -225,7 +225,7 @@
             );
           }
         }).addTo(map);
-        document.getElementById('status').textContent = 'Enter addresses to route. Or click the map to set Start then End point.';
+        document.getElementById('status').textContent = 'Enter addresses to route. Or click on the map to set your Start and End points for your trip.';
       })
       .catch(function(err) {
         console.warn('Crash layer failed:', err.message);
