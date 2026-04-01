@@ -107,6 +107,9 @@
     <div class="legend-item">
       <div class="legend-color" style="background:#A927F5"></div> Alternative Routes (Click for details)
     </div>
+    <div class="legend-item">
+  <div style="width:12px; height:12px; border-radius:50%; background:#FF6600; border:2px solid #CC3300; margin-right:8px"></div> Live Incidents (ODOT)
+    </div>
   </div>
 
   <div id="map"></div>
@@ -121,7 +124,9 @@
     // ============================================
     var GRAPHHOPPER_KEY = '616e1d33-e98d-490a-ae3e-2506c3d05e88';
     var GEOJSON_URL = 'https://services8.arcgis.com/tblHe99qQFMcNzpC/arcgis/rest/services/All_Streets_join_FeaturesToJSON/FeatureServer/0/query?where=1%3D1&outFields=*&f=geojson';
-
+    var ODOT_KEY = 'ba1f3d693d5144b194b402d841cafc62';
+    var liveIncidentLayer = null;
+    
     // ============================================
     // MAP SETUP
     // ============================================
@@ -450,6 +455,99 @@
       });
     }
 
+    // ============================================
+// LOAD LIVE ODOT INCIDENTS
+// Fetches active incidents from TripCheck API
+// and displays them as orange dots on the map
+// Refreshes every 2 minutes automatically
+// ============================================
+function loadLiveIncidents() {
+  fetch('https://api.tripcheck.com/api/incident', {
+    method: 'GET',
+    headers: {
+      'Ocp-Apim-Subscription-Key': ODOT_KEY,
+      'Accept': 'application/json'
+    }
+  })
+  .then(function(response) {
+    if (!response.ok) {
+      throw new Error('ODOT API error: ' + response.status);
+    }
+    return response.json();
+  })
+  .then(function(incidents) {
+
+    // Remove previous incident layer if one exists
+    if (liveIncidentLayer) {
+      map.removeLayer(liveIncidentLayer);
+      liveIncidentLayer = null;
+    }
+
+    // Filter to only incidents with valid coordinates
+    var validIncidents = incidents.filter(function(i) {
+      return i.Longitude && i.Latitude;
+    });
+
+    console.log('Live incidents loaded:', validIncidents.length);
+
+    // Convert to GeoJSON format for Leaflet
+    var geojson = {
+      type: 'FeatureCollection',
+      features: validIncidents.map(function(i) {
+        return {
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: [i.Longitude, i.Latitude]
+          },
+          properties: {
+            description: i.Description || 'Active Incident',
+            type:        i.IncidentType || 'Unknown',
+            severity:    i.Severity || 'Unknown',
+            location:    i.Location || '',
+            updated:     i.LastUpdated || ''
+          }
+        };
+      })
+    };
+
+    // Add to map as orange circle markers
+    liveIncidentLayer = L.geoJSON(geojson, {
+      pointToLayer: function(feature, latlng) {
+        return L.circleMarker(latlng, {
+          radius:      9,
+          fillColor:   '#FF6600',
+          color:       '#CC3300',
+          weight:      2,
+          opacity:     1,
+          fillOpacity: 0.85
+        });
+      },
+      onEachFeature: function(feature, layer) {
+        layer.bindPopup(
+          '<b>🚨 Active Incident</b><br>' +
+          '<b>' + feature.properties.description + '</b><br>' +
+          'Location: ' + feature.properties.location + '<br>' +
+          'Type: ' + feature.properties.type + '<br>' +
+          'Severity: ' + feature.properties.severity + '<br>' +
+          '<small>Updated: ' + feature.properties.updated + '</small>'
+        );
+      }
+    }).addTo(map);
+
+  })
+  .catch(function(err) {
+    console.warn('Live incidents failed to load:', err.message);
+  });
+}
+
+// Load incidents immediately when app starts
+loadLiveIncidents();
+
+// Auto-refresh every 2 minutes (120000 milliseconds)
+// matching ODOT TripCheck update rate
+setInterval(loadLiveIncidents, 120000);
+    
   </script>
 </body>
 </html>
