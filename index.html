@@ -123,6 +123,10 @@
       style="width:100%; padding:6px; margin-top:6px; background:#6B7B2E; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px;">
       Show Historical Injury/Fatal Crashes (2023)
     </button>
+    <button id="hci-toggle-btn" onclick="toggleHighCrashIntersections()"
+  style="width:100%; padding:6px; margin-top:6px; background:#4A4A8A; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px;">
+  Show High Crash Intersections
+  </button>
 
     <div id="score-summary"></div>
     <div id="directions"></div>
@@ -145,6 +149,7 @@
     <div class="legend-item">
       <div class="legend-color" style="background:#A927F5"></div> Alternative Routes
     </div>
+    <div style="width:12px; height:12px; border-radius:50%; background:transparent; border:2px solid #CC0000; margin-right:8px"></div> High Crash Intersection
     <div class="legend-divider"></div>
     <div class="legend-item">
       <div style="width:12px; height:12px; border-radius:50%; background:#FF6600; border:2px solid #CC3300; margin-right:8px"></div> Live ODOT Incidents
@@ -204,6 +209,8 @@
     var liveIncidentData  = null;
     var crashPointsLayer  = null;
     var crashPointsVisible = false;
+    var hciLayer   = null;
+    var hciVisible = false;
     var clickStart  = null;
     var clickEnd    = null;
     var clickCount  = 0;
@@ -715,6 +722,77 @@
         });
     }
 
+        // ============================================
+    // HIGH CRASH INTERSECTIONS LAYER
+    // Source: Portland Maps Open Data
+    // Off by default — toggled by button in panel
+    // ============================================
+    var HCI_URL = 'https://www.portlandmaps.com/od/rest/services/COP_OpenData_Transportation/MapServer/1428/query?' +
+      'where=1%3D1&outFields=*&f=geojson';
+    
+    function loadHighCrashIntersections() {
+      document.getElementById('hci-toggle-btn').textContent = 'Loading intersections...';
+    
+      fetch(HCI_URL)
+        .then(function(response) {
+          if (!response.ok) throw new Error('HCI error: ' + response.status);
+          return response.json();
+        })
+        .then(function(data) {
+          console.log('High crash intersections loaded:', data.features.length);
+    
+          hciLayer = L.geoJSON(data, {
+        pointToLayer: function(feature, latlng) {
+        return L.circleMarker(latlng, {
+        radius:      10,
+        fillColor:   'transparent',
+        color:       '#CC0000',
+        weight:      2,
+        opacity:     1,
+        fillOpacity: 0
+        });
+        },
+            onEachFeature: function(feature, layer) {
+              var p = feature.properties;
+              var totalInjuries = (p.NumInjA || 0) + (p.NumInjB || 0) + (p.NumInjC || 0);
+              var cost = p.InjuryCosts
+                ? '$' + p.InjuryCosts.toLocaleString()
+                : 'Unknown';
+              layer.bindPopup(
+                '<b>⚠️ High Crash Intersection</b><br>' +
+                '<b>' + (p.LocationDescription || 'Unknown Location') + '</b><br>' +
+                '<b>Rank:</b> #' + (p.CurrentRank || 'N/A') + '<br>' +
+                '<b>Fatal crashes:</b> ' + (p.NumFatal || 0) + '<br>' +
+                '<b>Injury crashes:</b> ' + totalInjuries + '<br>' +
+                '<b>Collision rate:</b> ' + (p.CollisonRate || 'N/A') + ' per million vehicles<br>' +
+                '<b>Estimated injury cost:</b> ' + cost
+              );
+            }
+          }).addTo(map);
+    
+          hciVisible = true;
+          document.getElementById('hci-toggle-btn').textContent = 'Hide High Crash Intersections';
+          document.getElementById('hci-toggle-btn').style.background = '#2A2A6A';
+          document.getElementById('hci-legend').style.display = 'flex';
+        })
+        .catch(function(err) {
+          console.warn('HCI layer failed:', err.message);
+          document.getElementById('hci-toggle-btn').textContent = 'Show High Crash Intersections';
+          document.getElementById('hci-toggle-btn').style.background = '#4A4A8A';
+        });
+    }
+    
+    function toggleHighCrashIntersections() {
+      if (hciVisible) {
+        if (hciLayer) { map.removeLayer(hciLayer); hciLayer = null; }
+        hciVisible = false;
+        document.getElementById('hci-toggle-btn').textContent = 'Show High Crash Intersections';
+        document.getElementById('hci-toggle-btn').style.background = '#4A4A8A';
+        document.getElementById('hci-legend').style.display = 'none';
+      } else {
+        loadHighCrashIntersections();
+      }
+    }
     // ============================================
     // LOAD LIVE ODOT INCIDENTS
     // ============================================
