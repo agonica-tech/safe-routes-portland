@@ -738,9 +738,8 @@
           if (!response.ok) throw new Error('HCI error: ' + response.status);
           return response.json();
         })
-        .then(function(data) {
-          console.log('High crash intersections loaded:', data.features.length);
-    
+.then(function(data) {
+  console.log('HCI data received:', data.type, 'features:', data.features ? data.features.length : 'NO FEATURES');    
           hciLayer = L.geoJSON(data, {
         pointToLayer: function(feature, latlng) {
         return L.circleMarker(latlng, {
