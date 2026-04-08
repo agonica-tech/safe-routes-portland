@@ -459,7 +459,9 @@
       var steps = path.instructions;
       var html = '<ol>';
       steps.forEach(function(step) {
-        html += '<li>' + step.text + '</li>';
+        if (step.sign !== 0) {  // skip "continue straight" steps
+          html += '<li>' + step.text + '</li>';
+        }
       });
       html += '</ol>';
       var directionsDiv = document.getElementById('directions');
